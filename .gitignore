@@ -1,0 +1,27 @@
+# MATLAB
+*.asv
+*.mex*
+*.mat
+*.fig
+slprj/
+*.autosave
+
+# Project-specific generated data
+output/
+calibration/*.mat
+config/*.mat
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Frames and videos (large, regenerable)
+frames/
+*.avi
+*.mp4
+*.mov
+*.png
+*.jpg
+*.jpeg

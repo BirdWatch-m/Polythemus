@@ -1,0 +1,221 @@
+CALIBRATION — CONCEPTS AND PROCEDURE
+=====================================
+Companion to: calibrateIntrinsics.m, calibrateExtrinsics.m, validateCalibration.m
+
+
+WHY CALIBRATION IS SPLIT INTO TWO STAGES
+-----------------------------------------
+A camera has two completely separate sets of geometric properties:
+
+  INTRINSICS — properties of the lens and sensor itself.
+    How does this particular camera convert a 3D ray in space into a 2D pixel?
+    This is determined by focal length (how strong the lens is), the principal
+    point (where the lens axis hits the sensor), and lens distortion (how much
+    the lens bends straight lines). These do NOT change unless you physically
+    adjust the lens or change the resolution setting. You calibrate intrinsics
+    once per camera, indoors, and never again unless something changes.
+
+  EXTRINSICS — where the camera sits in the world and which way it points.
+    These change every time you move or re-aim a camera. You calibrate
+    extrinsics every time the cameras are repositioned.
+
+Separating these is important for your setup because:
+  - The checkerboard can be shown to one camera at a time (intrinsics).
+  - Extrinsics are recovered from the shared scene the cameras already see
+    (the buildings across the street), so no physical props are needed across
+    the 10m balcony-to-balcony gap.
+
+
+INTRINSIC CALIBRATION — WHAT IS HAPPENING MATHEMATICALLY
+----------------------------------------------------------
+The camera is modelled as a pinhole: all light passes through a single point
+(the "optical centre") before hitting the sensor. In this model, a 3D world
+point P = [X, Y, Z] projects to pixel [u, v] via:
+
+    [u]       [fx   0  cx] [X]
+    [v]  =  1/Z * [ 0  fy  cy] [Y]
+    [1]       [ 0   0   1] [Z]
+
+where:
+  fx, fy = focal length in pixels (usually nearly equal for square pixels)
+  cx, cy = principal point — the pixel coordinates of the optical axis centre
+            (usually close to but not exactly the image centre)
+
+Real lenses also distort the image radially — straight lines appear curved
+near the edges. This is modelled by two radial distortion coefficients k1, k2:
+
+    r² = (u - cx)² + (v - cy)²
+    u_distorted = u * (1 + k1*r² + k2*r⁴)
+    v_distorted = v * (1 + k1*r² + k2*r⁴)
+
+MATLAB's estimateCameraParameters recovers fx, fy, cx, cy, k1, k2 by:
+  1. You show the camera a checkerboard at many positions and angles.
+  2. MATLAB detects the exact pixel coordinates of every interior corner.
+  3. It knows what those corners' real-world 3D coordinates are (from
+     squareSizeM and boardSize), because a flat checkerboard's corners
+     are on a regular grid.
+  4. It finds the parameter values that best explain all the detections
+     simultaneously — a nonlinear least-squares problem solved internally.
+
+The "reprojection error" is the average distance, in pixels, between where
+MATLAB thinks the corners should appear (given its parameter estimate) and
+where they actually appear. Below 0.5px is excellent; below 1.0px is usable.
+
+PRACTICAL TIPS FOR GOOD INTRINSIC CALIBRATION:
+  - Cover the whole frame — captures in only the centre miss distortion at edges.
+  - Tilt the board at varied angles (30-45 degrees in multiple directions).
+  - Vary the distance — close (0.3m) and far (1.0m) both.
+  - Keep the board flat and rigid (tape it to a clipboard or thin hardboard).
+  - A 6x8 interior corner board (7x9 squares) printed on A3 is ideal.
+    A4 works but gives fewer corners and slightly lower accuracy.
+  - If several captures have much higher error than the mean, they are
+    blurry or the board was not flat. Recollect just those captures.
+
+
+EXTRINSIC CALIBRATION — WHAT IS HAPPENING MATHEMATICALLY
+----------------------------------------------------------
+Once intrinsics are known, the extrinsic problem is: given two cameras
+pointing at the same scene, how are they positioned and oriented relative
+to each other?
+
+The answer lives in two 3x3 matrices per camera pair:
+  R — rotation matrix: describes orientation (which way the camera points)
+  t — translation vector: describes position (where the camera centre is)
+
+Together [R|t] is called the "camera pose". Camera 1 is defined as the
+world origin: R{1} = identity matrix, t{1} = [0,0,0].
+
+HOW WE RECOVER EXTRINSICS FROM FEATURE MATCHES:
+
+Step 1 — Feature detection (detectSURFFeatures):
+  SURF (Speeded-Up Robust Features) finds distinctive textured regions in
+  an image — window corners, tree edges, roof lines. Each detected point
+  gets a numerical descriptor (a 64-element vector) describing the local
+  texture pattern around it.
+
+Step 2 — Feature matching (matchFeatures):
+  For each descriptor in camera 1's frame, find the most similar descriptor
+  in camera 2's frame. If the best match is significantly better than the
+  second-best (ratio test, MaxRatio=0.6), it is kept. This rejects ambiguous
+  matches that could correspond to any of several similar-looking regions.
+
+Step 3 — Fundamental matrix estimation (estimateFundamentalMatrix with RANSAC):
+  The fundamental matrix F is a 3x3 matrix that encodes the geometric
+  relationship between two cameras. For any pair of correctly matched points
+  p1 (camera 1) and p2 (camera 2), the following holds exactly:
+
+      p2' * F * p1 = 0
+
+  In practice, some matches from Step 2 are wrong (outliers). RANSAC handles
+  this by repeatedly:
+    a) picking 8 random matches,
+    b) fitting F to those 8 points,
+    c) counting how many OTHER matches are consistent with that F (inliers),
+    d) keeping the F that explains the most matches.
+  After 2000 trials, the best F explains the true geometry of the scene.
+
+Step 4 — Recover pose (relativeCameraPose):
+  Given F and both cameras' intrinsics, MATLAB can extract four candidate
+  (R, t) solutions. It selects the one where triangulated points appear in
+  FRONT of both cameras (not behind them).
+
+  IMPORTANT LIMITATION: Feature matching alone cannot recover the absolute
+  scale of t. The translation direction is correct but the magnitude is
+  arbitrary (unit scale). This is a fundamental limitation of vision-only
+  calibration — you cannot tell the difference between "cameras 2m apart
+  looking at a building 20m away" and "cameras 20m apart looking at a
+  building 200m away" from images alone.
+
+  Scale is fixed during validation (validateCalibration.m): you triangulate
+  a point at a known distance, compare to the measured distance, and apply
+  a scale factor. Alternatively, if you measure the exact baseline between
+  two cameras with a tape measure, you can fix scale directly by normalising
+  t to that length.
+
+
+SCALE FIXING — PRACTICAL PROCEDURE
+------------------------------------
+After calibrateExtrinsics runs:
+
+Option A (recommended): Measure baseline physically.
+  1. Use your telemeter to measure the distance between camera 1 and camera 2
+     precisely (e.g. 2.25m).
+  2. The calibration gives t{2} with some unit-scale length, e.g. norm(t{2}) = 1.0.
+  3. Apply scale factor: scaleFactor = 2.25 / norm(t{2});
+  4. Apply to ALL cameras: for i = 2:N, t{i} = t{i} * scaleFactor; end
+  5. Re-save multiCamParams.
+
+Option B: Use validateCalibration.
+  1. Place an object at a measured distance D from camera 1.
+  2. Run validateCalibration — it reports results.distFromCam1.
+  3. scaleFactor = D / results.distFromCam1;
+  4. Apply to all t as above.
+
+Option B is more reliable because it checks the full triangulation pipeline,
+not just the baseline. Do both if possible.
+
+After scaling, run validateCalibration again and confirm the reported distance
+matches the measured distance within ~5%.
+
+
+CHAINING POSES (3+ cameras)
+-----------------------------
+With 3 cameras arranged as on your balconies, camera 3 may not share enough
+feature matches with camera 1 (large baseline, different far-field view).
+
+calibrateExtrinsics handles this by chaining:
+  - Camera 2's pose is computed relative to camera 1 directly.
+  - Camera 3's pose is computed relative to camera 2 (which has more overlap).
+  - Camera 3's world-frame pose is then composed:
+      R{3} = R_rel_32 * R{2}
+      t{3} = R_rel_32 * t{2} + t_rel_32
+
+This is standard practice but introduces a small additional error at each
+chain link. With only 3 cameras the accumulated error is negligible.
+
+If chaining still fails (too few matches even between adjacent cameras),
+the fallback is the checkerboard-at-distance approach: mount a 1.5m x 2m
+board on the opposite building's wall, visible to both balconies. At 20m
+range, a 40mm square (printed at large scale) gives ~10px per square —
+barely sufficient, but workable with a high-quality print.
+
+
+OUTPUT STRUCT FIELDS
+---------------------
+multiCamParams is the struct saved to cfg.calFile and loaded by initSystem.
+
+  .intrinsics{i}   — cameraParameters object for camera i.
+                     Contains focal length, principal point, distortion.
+                     Used in undistortPoints() before every triangulation.
+
+  .R{i}            — 3x3 rotation matrix for camera i.
+                     Columns are the X, Y, Z axes of camera i expressed
+                     in world coordinates. R{1} = eye(3).
+
+  .t{i}            — 3x1 translation vector for camera i.
+                     The world-frame position of camera i's optical centre.
+                     t{1} = [0;0;0].
+
+  .capturedAt      — timestamp string, recorded for bookkeeping.
+
+  .sourceFrames    — the raw frames used for extrinsic estimation.
+                     Stored so you can re-inspect match quality later.
+
+The fundamental matrices (.F{i,j}) are NOT stored in this file.
+They are computed on-the-fly by buildFundamentalMatrices() inside
+initSystem each time the system starts, from R, t, and intrinsics.
+This avoids storing redundant data that could become inconsistent.
+
+
+WHEN TO RECALIBRATE
+--------------------
+Intrinsics:   Never, unless you change the lens, sensor, or resolution.
+Extrinsics:   Every time a camera is physically moved or re-aimed.
+              Also recommended if a camera is knocked even slightly —
+              a 1-degree rotation error causes ~1.7% depth error at any range,
+              which at 100m is 1.7m of position error.
+
+Signs that extrinsic calibration has drifted:
+  - validateCalibration distance error grows above 10%.
+  - Confirmed tracks jump discontinuously between frames.
+  - Two cameras systematically disagree on bird position.
