@@ -1,0 +1,729 @@
+CODE REVIEW — BirdTracker baseline
+====================================
+Date:     2026-04-26
+Scope:    Every committed .m file (single-camera detection pipeline,
+          calibration scaffolding, scripts).
+Status:   Findings only. No code changed by this review.
+
+Legend:   [BUG]  correctness defect, will misbehave when run
+          [PERF] measurable runtime cost, no functional defect
+          [CONV] violation of the project conventions in CLAUDE.md
+          [DEAD] code path that nothing reaches, or planned-but-unused state
+          [DOC]  comment / doc inaccuracy
+          [STYLE] minor cleanup, low payoff
+
+
+================================================================
+0. EXECUTIVE SUMMARY
+================================================================
+
+Three things you should fix before doing anything else, because they
+change measured behaviour:
+
+  (A) applyBackground.m uses a single `persistent` variable to schedule
+      median-background updates across ALL cameras. With N>=2, only
+      camera 1's background is ever refreshed; cam 2 (and 3) keep the
+      bgMedian computed during their first frame, when the ring buffer
+      is mostly zeros. This silently corrupts every multi-camera run.
+      See [BUG-1] below. This is the single most important fix.
+
+  (B) Every camera frame is converted to grayscale TWICE — once in
+      updateRingBuf (to fill the ring buffer) and again in
+      preprocessFrame. At 720p that is ~1.5-3 ms wasted per camera
+      per frame, ~5-9% of the 30 fps budget for N=3.
+
+  (C) `clear cams{i}` is used in three files (calibrateExtrinsics,
+      validateCalibration, drawSkyMasks) to release webcams. `clear`
+      does not accept indexed expressions — it parses the literal
+      string "cams{i}". The webcam handles are NOT released, which
+      is why a follow-up call (e.g. running validateCalibration after
+      calibrateExtrinsics) sometimes fails to open the cameras until
+      MATLAB is restarted.
+
+The remaining issues are real but lower-stakes: small performance wins
+(~5-15 ms/frame combined), magic numbers leaking outside buildConfig,
+half-implemented features whose comments imply they exist, and a few
+lines of dead code.
+
+There is nothing in the codebase that needs a redesign. The architecture
+described in CLAUDE.md (cell-array-of-N, stateless functions, single
+config) is followed in the implemented modules. Most fixes are local.
+
+
+================================================================
+1. CRITICAL BUGS  (fix before next multi-camera run)
+================================================================
+
+[BUG-1]  applyBackground.m: shared persistent counter across cameras
+---------------------------------------------------------------------
+File: applyBackground.m, lines 32-39
+
+    persistent framesSinceUpdate;
+    if isempty(framesSinceUpdate), framesSinceUpdate = 0; end
+    framesSinceUpdate = framesSinceUpdate + 1;
+    if framesSinceUpdate >= 15 || all(bgMedian(:) == 0)
+        bgMedian = double(median(ringBuf_i(:,:,1:nFrames), 3));
+        framesSinceUpdate = 0;
+    end
+
+`persistent` variables are tied to the FUNCTION, not to the caller.
+detectBlobs.m calls applyBackground once per camera per frame, in a
+loop. So with N=2:
+
+    Frame 1, cam 1 -> counter 0->1, bgMedian is zero -> update, counter -> 0
+    Frame 1, cam 2 -> counter 0->1, bgMedian is zero -> update, counter -> 0
+    Frame 2, cam 1 -> 1
+    Frame 2, cam 2 -> 2
+    ...
+    Frame 8, cam 1 -> 14->15 -> UPDATE cam1 -> 0
+    Frame 8, cam 2 -> 0->1   -> skip
+    Frame 16, cam 1 -> 14->15 -> UPDATE cam1 -> 0
+    Frame 16, cam 2 -> 0->1   -> skip
+    ...
+
+Cam 2's bgMedian is fixed forever at the median of a near-empty ring
+buffer (one real frame plus 59 zeros, threshold 35 -> almost every
+sky pixel is foreground). The GMM (which IS per-camera, because
+fgDetectors{i} is a separate handle object) carries the system, but
+the AND with the bad median mask still distorts results.
+
+FIX (recommended): Move the counter into state, indexed by camera.
+
+    % in initSystem.m, after bgMedian/fgDetectors block:
+    state.bgFramesSinceUpdate = zeros(1, N);
+
+    % applyBackground.m signature gains framesSinceUpdate, returns it:
+    function [mask, bgMedian, framesSinceUpdate] = applyBackground( ...
+            frameGray, bgMedian, ringBuf_i, framesSinceUpdate, ...
+            fgDetector, cfg)
+
+        framesSinceUpdate = framesSinceUpdate + 1;
+        if framesSinceUpdate >= cfg.bgUpdateInterval || all(bgMedian(:) == 0)
+            bgMedian = double(median(ringBuf_i(:,:,1:nFrames), 3));
+            framesSinceUpdate = 0;
+        end
+        ...
+    end
+
+And update detectBlobs.m / preprocessFrame.m to plumb the counter
+through. (This is also the right refactor for [CONV-3] — magic
+number 15 — and [CONV-4] — magic number 35 for the threshold.)
+
+NOTE: testSingleCamera.m happens to work correctly only because N=1.
+You will not notice this bug until you wire up cam 2.
+
+
+[BUG-2]  Three callers leak webcam handles ("clear cams{i}")
+---------------------------------------------------------------------
+calibrateExtrinsics.m line 95:   for i = 1:N, clear cams{i}; end
+validateCalibration.m line 63:   for i = 1:N, clear cams{i}; end
+drawSkyMasks.m       line 65:    for i = 1:N, clear cams{i}; end
+
+`clear` is a command, it takes literal variable names. `clear cams{i}`
+parses as the string "cams{i}" and silently does nothing — the cell
+`cams` is not cleared, the underlying webcam objects are not released,
+and the camera stays locked.
+
+Symptoms: a second call to `webcam(i)` later in the same MATLAB
+session can fail with "Camera could not be opened" or hang. testSingleCamera.m
+correctly does `clear cam;` (no braces) and works.
+
+FIX: replace each loop with the cell-clearing form, which DOES release
+each handle (delete is implicit when the last reference goes away):
+
+    cams = {};   % drops all references at once
+    % or, if you want to keep the cell shape:
+    for i = 1:N, cams{i} = []; end
+
+
+[BUG-3]  replaySession.m: malformed frame path
+---------------------------------------------------------------------
+File: replaySession.m, line 56
+
+    frame = imread(fullfile(frameDir, frameFiles(k).folder, frameFiles(k).name));
+
+`frameFiles(k).folder` is already an absolute path. `fullfile` with
+an absolute path as a middle argument doesn't drop the earlier
+arguments — it concatenates them, producing something like
+`output/frames/D:/HomeWork/.../frame_000001.png`, which `imread`
+will not find.
+
+FIX:
+    frame = imread(fullfile(frameFiles(k).folder, frameFiles(k).name));
+
+
+[BUG-4]  calibrateIntrinsics.m: function arguments are ignored
+---------------------------------------------------------------------
+File: calibrateIntrinsics.m, lines 1, 30-34
+
+    function intrinsics = calibrateIntrinsics(camIdx, cfg, squareSizeM, boardSize)
+    ...
+    % ---- USER INPUTS ----
+    camIdx      = 1;
+    cfg         = buildConfig();
+    squareSizeM = 0.023;
+    boardSize   = [];
+    saveFile    = 'calibration/intrinsics_laptopcamtest.mat';
+
+The function signature looks like calibrateIntrinsics is callable as
+a function, but the body unconditionally overwrites every input
+argument. Calling `calibrateIntrinsics(2, cfg, 0.025, [5 7])` from
+calibrateExtrinsics or any test will silently use camIdx=1,
+squareSizeM=0.023, etc. The header documentation is also misleading.
+
+FIX (option A): make it a script (drop the `function ...` line, drop
+the trailing `end`, keep the user-input block). Convention in CLAUDE.md
+already allows scripts for top-level entry points; this is one.
+
+FIX (option B): make it a function and remove the user-input block.
+Pass everything via arguments. This is preferred if you ever want to
+calibrate multiple cameras in a sweep.
+
+Either way, also:
+  - line 99 mixes datetime and double: `(datetime("now") - lastCapTime) * 86400`,
+    where lastCapTime is initialised to -Inf (a double). This errors as
+    soon as you reach a frame where boardFound is true (the short-circuit
+    in `isStable && timePassed > AUTO_INTERVAL` saves you for the
+    no-board case, but the timePassed line above runs unconditionally
+    and will throw "Operator '-' is not supported for operands of type
+    datetime and double"). Initialise with `lastCapTime = datetime("now") - seconds(AUTO_INTERVAL+1);`
+    or use `tic/toc` instead of datetime.
+
+
+[BUG-5]  Pose-composition convention is not verified
+---------------------------------------------------------------------
+File: calibrateExtrinsics.m, lines 143-144
+
+    R{i} = R_rel * R{ref};
+    t{i} = R_rel * t{ref} + t_rel;
+
+`relativeCameraPose` returns the pose of camera target relative to
+camera ref in the convention `X_ref = R_rel * X_target + t_rel` (i.e.
+target-to-ref). The composition above is correct only under the
+"world-to-camera" interpretation of R, t.
+
+In validateCalibration.m line 91 you then build:
+    tform = rigidtform3d(cal.R{i}, cal.t{i}');
+
+`triangulateMultiview` requires the AbsolutePose field to be the
+camera's pose in WORLD coordinates (camera-to-world). If R{i}, t{i}
+are world-to-camera, you'd need to invert: R_abs = R{i}', t_abs = -R{i}' * t{i}.
+
+This may already be working depending on which MATLAB toolbox version
+you have (the convention changed around R2022b when rigidtform3d
+replaced rigid3d). Action: run validateCalibration once cameras are
+mounted and confirm the reported distance matches your tape-measured
+distance to within a few percent. If it's off by exactly the right
+ratio but in the wrong sign of one axis, this is the cause.
+
+(I'd not change anything here speculatively — the exact convention
+depends on toolbox version and is best verified empirically.)
+
+
+================================================================
+2. PERFORMANCE
+================================================================
+
+[PERF-1]  rgb2gray called twice per frame per camera
+---------------------------------------------------------------------
+updateRingBuf.m line 26:    ringBuf{i}(:,:,ringIdx(i)) = rgb2gray(frames{i});
+preprocessFrame.m line 23:  frameGray = rgb2gray(frame);
+
+Both run on the same frame data. rgb2gray is ~1-3 ms at 720p depending
+on hardware. Across N=3 cameras you save ~5 ms/frame.
+
+FIX (smallest change): pass the gray frame from updateRingBuf onward.
+Either return it from updateRingBuf, or read it back from the ring
+buffer at the current index inside preprocessFrame.
+
+    % in detectBlobs.m, simplest:
+    frameGray = state.ringBuf{i}(:,:,prevRingIdx(i));   % the slot just written
+    [blobs{i}, state.bgMedian{i}] = preprocessFrame( ...
+        frameGray, state.bgMedian{i}, state.ringBuf{i}, ...);
+
+(Then preprocessFrame takes a grayscale frame and drops the rgb2gray
+on its first line. The signature change cascades into the doc-comment.)
+
+
+[PERF-2]  median() over 60 frames every 15 frames
+---------------------------------------------------------------------
+applyBackground.m line 37:
+    bgMedian = double(median(ringBuf_i(:,:,1:nFrames), 3));
+
+For 1280x720x60 uint8, MATLAB's median is roughly 80-200 ms on a
+laptop CPU — a noticeable spike every half-second. Three options,
+in order of effort:
+
+  (a) Use the ring buffer's natural index range. Right now you median
+      over slots 1:60 regardless of where the write head is. While
+      median is order-independent, when the buffer hasn't filled past
+      slot 60 you're including initial zeros. Track a `nFilled` count
+      in state and use min(nFilled, cfg.medianBufLen).
+
+  (b) Subsample temporally. Median over every Kth frame in the buffer
+      (e.g. 20 frames out of 60). On sky data the median is very
+      stable across nearby frames.
+
+  (c) Approximate running median. Maintain bgMedian as
+      bgMedian = bgMedian + sign(frameGray - bgMedian) * step;
+      with step ~= 1.0/30. This is O(1) per pixel per frame, no
+      buffer scan at all. Different statistical properties from a
+      true median (slower to react to large changes) but excellent
+      for slowly-drifting sky.
+
+(c) is the standard fix for outdoor surveillance. It also makes the
+ring buffer's role smaller — at that point you only keep it for
+debugging / sky-drift inspection.
+
+
+[PERF-3]  insertShape and insertText called inside per-blob loop
+---------------------------------------------------------------------
+renderFrame.m lines 38-45:
+
+    for k = 1:numel(blobs{i})
+        c       = blobs{i}(k).centroid;
+        display = insertShape(display, 'Circle', [c(1) c(2) 6], ...);
+        display = insertText(display, [c(1)+8 c(2)], ...);
+    end
+
+Each call rasters and copies the entire HxWx3 image. With 5 blobs you
+do 10 image-sized memcpy operations per frame per camera. Both
+functions accept arrays of positions in a single call.
+
+FIX:
+    centroids = vertcat(blobs{i}.centroid);                % nBlobs x 2
+    if ~isempty(centroids)
+        circles = [centroids, repmat(6, size(centroids,1), 1)];
+        display = insertShape(display, 'Circle', circles, ...
+                              'Color', 'green', 'LineWidth', 2);
+
+        areaTexts = arrayfun(@(b) sprintf('%.0fpx2', b.area), blobs{i}, ...
+                             'UniformOutput', false);
+        textPos   = centroids + [8 0];
+        display   = insertText(display, textPos, areaTexts, ...
+                               'FontSize', 10, 'BoxOpacity', 0);
+    end
+
+This drops a typical 5-blob frame from ~30 ms of rendering to ~5 ms.
+
+
+[PERF-4]  Dynamic array growth in logFrame and the testSingleCamera benchmarks
+---------------------------------------------------------------------
+logFrame.m:
+    log.timestamps(end+1) = ...
+    log.syncFlags(end+1)  = ...
+    log.nBlobs(:,end+1)   = ...
+    log.blobCentroids{end+1} = ...
+
+testSingleCamera.m:
+    t_loop_snapshot(end+1) = ...
+    t_loop_detect(end+1)   = ...
+    t_loop_display(end+1)  = ...
+    t_loop_total(end+1)    = ...
+    interFrameTimes(end+1) = ...
+
+Each `(end+1)` reallocates and copies. For a 90 s session at 30 fps
+that's 2700 reallocations per field, total cost growing as O(n^2).
+Not a real-time killer but it adds tens of milliseconds of GC-style
+spikes near the end of long sessions and can show up as bad jitter
+numbers.
+
+FIX: preallocate from cfg.
+
+    estFrames = ceil(cfg.fps * nSeconds * 1.2);   % +20% headroom
+    log.timestamps  = nan(1, estFrames);
+    log.syncFlags   = false(1, estFrames);
+    log.nBlobs      = zeros(cfg.N, estFrames);
+    log.blobCentroids = cell(1, estFrames);
+
+    % logFrame writes by index, not by end+1:
+    function log = logFrame(log, blobs, timestamps, syncOk, frameIdx, cfg)
+        log.timestamps(frameIdx)    = mean(timestamps);
+        log.syncFlags(frameIdx)     = syncOk;
+        log.nBlobs(:,frameIdx)      = cellfun(@numel, blobs).';
+        log.blobCentroids{frameIdx} = ...
+    end
+
+    % saveSession trims trailing NaNs/empties before saving.
+
+You also need to truncate at session end if the loop exits early.
+
+
+[PERF-5]  Sequential snapshot() calls
+---------------------------------------------------------------------
+acquireFrames.m lines 22-25:
+    for i = 1:N
+        frames{i}     = snapshot(cams{i});
+        timestamps(i) = toc(tStart);
+    end
+
+snapshot() is blocking. With 2 webcams at ~15-25 ms each you get
+30-50 ms total acquisition latency per "frame" — and worse, the
+two grabs are serial in time, so the per-frame timestamp jitter
+between cam 1 and cam 2 is at least one snapshot's worth (~25 ms),
+which already exceeds cfg.maxSyncError = 33 ms minus normal jitter.
+
+There is no easy fix in MATLAB without doing the acquisition in
+separate threads (parfeval / a MEX wrapper around DirectShow / OpenCV).
+For a 2-camera setup it's borderline. For 3 cameras you will likely
+log syncOk=false on a non-trivial fraction of frames.
+
+ACTION: leave it as-is for now and validate empirically. If sync
+flags become a problem, the realistic options are:
+  - drop to 720p / 30 fps if currently higher;
+  - record both cameras' raw frames and align in post (shifts the
+    real-time complexity into replaySession);
+  - move acquisition to parfeval (requires Parallel Computing Toolbox).
+
+A more nuanced syncCheck would also help — see [STYLE-2].
+
+
+[PERF-6]  subplot called every frame inside renderFrame
+---------------------------------------------------------------------
+renderFrame.m line 33: `subplot(1, N, i);` is invoked every frame
+per camera. Subplot resolves the layout each call. For N=2-3 the
+cost is small (~1-2 ms total) but it's also avoidable.
+
+FIX: cache axes handles in appdata or in a persistent cell, reuse
+on subsequent frames. Or build the figure once with `tiledlayout`
+and `nexttile`. Optional cleanup; not high priority.
+
+
+================================================================
+3. CONVENTIONS  (CLAUDE.md violations)
+================================================================
+
+[CONV-1]  resolved (option a)
+          All .m files and CALIBRATION_EXPLAINED.txt moved into
+          acquisition/, detection/, io/, calibration/, config/ via
+          git mv. addpath(genpath('.')) in the quick-start discovers
+          them automatically.
+
+[CONV-2]  Magic numbers outside buildConfig.m. CLAUDE.md says "no
+          magic numbers anywhere outside buildConfig.m". Offenders:
+
+  applyBackground.m   line 36   `framesSinceUpdate >= 15`         -> cfg.bgUpdateInterval
+  applyBackground.m   line 43   `diffImg > 35`                    -> cfg.medianFgThreshold
+  initSystem.m        line 100  NumGaussians=3, NumTrainingFrames=60, LearningRate=0.005
+                                                                  -> cfg.gmm.numGaussians, .numTrainingFrames, .learningRate
+  testSingleCamera.m  lines 61-63, 76-78  same GMM constants duplicated
+  gateBlobs.m         line 27   `strel('disk', 2)`                -> cfg.morphKernelRadius
+  gateBlobs.m         line 42   `safeMinor = max(minorAxes, 0.1)` (not really a tunable; OK)
+  calibrateIntrinsics.m line 36-38   MIN_CAPTURES=15, AUTO_INTERVAL=1.5, STABILITY_THR=3.0
+                                                                  -> cfg.calIntrinsics.* or keep here as it's a self-contained script
+  calibrateExtrinsics.m line 194-195  MetricThreshold=600
+                       line 202       MatchThreshold=50, MaxRatio=0.6
+                       line 221       NumTrials=2000, DistanceThreshold=1.5
+                       line 230       inliers < 12
+                                                                  -> cfg.calExtrinsics.* (group)
+  testSingleCamera.m   line 100-103  thresholds 30, benchFrames=20
+
+  Recommended: add nested structs in cfg so the entry-point scripts
+  (testSingleCamera, calibrateIntrinsics) can carry their own group:
+
+      cfg.bg.updateInterval = 15;
+      cfg.bg.medianThreshold = 35;
+      cfg.gmm.numGaussians = 3;
+      cfg.gmm.numTrainingFrames = 60;
+      cfg.gmm.learningRate = 0.005;
+      cfg.morph.kernelRadius = 2;
+
+  This will also let you tune detection sensitivity from one place.
+
+[CONV-3]  Inline comments occasionally explain WHAT the code does
+          (the convention says explain that briefly; longer
+          explanation goes in headers or .txt files). Examples that
+          could be tightened: applyBackground.m comments on lines 28-30
+          and 41 are fine. preprocessFrame.m comment on line 23 is
+          fine. No serious offenders here — convention is mostly
+          honored.
+
+[CONV-4]  CLAUDE.md says "All state lives in caller-passed structs.
+          No globals." applyBackground's persistent variable violates
+          this in spirit (it IS function-scoped state, hidden from the
+          caller). Fixing [BUG-1] also fixes [CONV-4].
+
+[CONV-5]  Function header docs. Most are good. Exceptions:
+          - calibrateIntrinsics.m header documents (camIdx, cfg, squareSizeM, boardSize)
+            but body ignores them ([BUG-4]).
+          - applyBackground.m header doesn't mention the persistent counter.
+          - logFrame.m doesn't mention `log.blobCentroids`.
+          - replaySession.m comment on line 60-62 says "blob centroids are
+            not stored yet" but as of the current logFrame they ARE stored.
+            Update this comment.
+
+
+================================================================
+4. DEAD CODE / ORPHAN STATE
+================================================================
+
+[DEAD-1]  Configuration values defined and never read:
+          buildConfig.m
+            cfg.epiThreshold       (line 29) — for cross-camera association, not implemented
+            cfg.reprThreshold      (line 32) — for triangulation gate, not implemented
+            cfg.maxCoastFrames     (line 45) — for tracker, not implemented
+            cfg.minConfirmFrames   (line 46) — for tracker, not implemented
+            cfg.kalmanProcNoise    (line 49) — for tracker, not implemented
+            cfg.kalmanMeasNoise    (line 52) — for tracker, not implemented
+
+          These are intentional placeholders for the unimplemented
+          modules listed in the project status table. Keep them, but
+          add a one-line comment on each saying which not-yet-written
+          module reads them. Otherwise it's not obvious from grep that
+          these values are alive.
+
+[DEAD-2]  initSystem.m sets up state.tracks (line 165) and state.nextTrackId
+          (line 173). Nothing else in the codebase reads these. Same
+          status as [DEAD-1] — fine to keep, mark as "consumed by
+          updateTracks (TBD)" in the doc.
+
+[DEAD-3]  initSystem.m line 156 calls buildFundamentalMatrices and
+          stores state.calibration.F{i,j}. No code reads .F. Will be
+          consumed by associateViews (not yet implemented). Same
+          treatment as DEAD-1/2.
+
+[DEAD-4]  validateCalibration.m line 97:
+              track = pointTrack(1:N, clickedPixels);
+          assigned but immediately replaced at line 106 by a pointTrack
+          built from undistorted points. Delete line 97.
+
+[DEAD-5]  calibrateExtrinsics.m line 170:
+              multiCamParams.sourceFrames = frames;
+          The .mat then carries 3*1280*720*3 bytes (~8 MB) of frames
+          that nothing else reads. Comment says "stored for later
+          inspection". Acceptable but consider:
+            - saving them as separate JPEGs alongside the .mat
+            - or saving only if cfg.calibration.keepSourceFrames is true
+          For a 60-page paper that wants reproducibility, keeping them
+          IS justifiable; just be aware of the size.
+
+[DEAD-6]  calibrateExtrinsics.m line 215 prints "%d feature matches found"
+          AFTER the count check on line 207 has already errored on too
+          few. Reorder so the print comes before the check, or swallow
+          it.
+
+[DEAD-7]  References to unimplemented files in "see also" / fprintf:
+            initSystem.m header line 38:           "See also: buildConfig, acquireFrames, main"
+            acquireFrames.m header line 15:        no, this one is fine
+            applyBackground.m, preprocessFrame.m:  reference associateViews
+          There is no main.m and no associateViews.m. Either create
+          stubs that error with "not implemented", or remove the
+          references until the modules exist. Stale see-also is
+          worse than missing see-also.
+
+
+================================================================
+5. FILE-BY-FILE NOTES
+================================================================
+
+buildConfig.m
+  - Single source of truth as advertised. Clean.
+  - Add nested groups for detection thresholds (see [CONV-2]).
+  - Document units consistently. cfg.kalmanMeasNoise comment says
+    "(m^2)" but the comment block above says "(m/s^2)^2"; check the
+    Kalman implementation when you write it and align units.
+
+initSystem.m
+  - Generally well-organised, good error messages.
+  - The buildFundamentalMatrices helper uses inv(K_j)' and inv(K_i).
+    Numerically harmless at 3x3 but the idiomatic form is
+    `(K_j') \ E / K_i`. Marginal.
+  - state.bgFramesSinceUpdate must be added (see [BUG-1] fix).
+  - No call site exists yet that consumes state.tracks — fine for
+    now, see [DEAD-2].
+
+testSingleCamera.m
+  - Header line 1 typo: "TESTSINGLCAMERA" -> "TESTSINGLECAMERA".
+  - Re-creates state.bgMedian, state.ringBuf, state.fgDetectors,
+    state.skyMask inside the loop (lines 170-174). Initialise once
+    before the loop; just update bgMedian/ringBuf via return values.
+  - Has its own GMM-detector creation with the same magic constants
+    as initSystem.m (lines 61-63 and 76-78). DRY: factor a helper
+    `fd = makeGmm(cfg)` used by both.
+  - The benchmark loop at lines 89-106 mixes preallocated arrays
+    (good) with a try/catch that overwrites t_snapshot(b) twice
+    on success (line 93 and 98). The first assignment is dead.
+  - `nanmean` and `nanstd` are still functional but officially
+    superseded by `mean(..., 'omitnan')` and `std(..., 'omitnan')`.
+  - Diagnostic block computes the bottleneck nicely. Keep this.
+  - Press-Q-to-stop pattern is fine for a script. For multi-camera
+    consider also accepting Ctrl+C cleanly (it already does, MATLAB
+    handles it).
+
+replaySession.m
+  - [BUG-3] above is the main thing.
+  - Use VideoWriter('output/replay.avi', 'Motion JPEG AVI'). Default
+    "Uncompressed AVI" for an N-second 720p session is multi-GB.
+  - Local variable `display` shadows the built-in `display` function.
+    Rename to `frameOut` or similar.
+  - Set cfg.N = log size automatically: `cfg.N = size(log.nBlobs, 1);`
+    instead of the hardcoded `cfg.N = 1`.
+
+acquireFrames.m
+  - Implementation matches doc. See [PERF-5] for the broader concern.
+
+updateRingBuf.m
+  - Implementation correct. Drop the rgb2gray here OR drop it in
+    preprocessFrame; pick one. See [PERF-1].
+
+syncCheck.m
+  - Trivial, correct. Consider returning the actual maxDiff
+    (currently you only return ok). The session log might want it
+    for tuning cfg.maxSyncError post-hoc.
+
+preprocessFrame.m
+  - Correct, three-line body. Will need to drop rgb2gray after [PERF-1]
+    fix.
+
+applyBackground.m
+  - See [BUG-1], [CONV-2] (magic numbers 15 and 35), [PERF-2].
+  - When rewriting, document why median AND GMM is used (not just
+    OR). The header says "reduces false positives from clouds and
+    exposure shifts" — good; keep.
+
+detectBlobs.m
+  - Trivial dispatcher. Will need an extra arg for the per-camera
+    bgFramesSinceUpdate after [BUG-1] fix.
+
+gateBlobs.m
+  - Correct. Two minor things:
+      (i) regionprops is called with 5 properties even when the
+          area filter would discard most blobs. Cheaper:
+              stats = regionprops(mask, 'Area', 'PixelIdxList');
+              keep = [stats.Area] >= cfg.minBlobArea & [stats.Area] <= cfg.maxBlobArea;
+              stats = regionprops(ismember(labelmatrix(...), find(keep)), 'all properties');
+          but this is overkill for ~10-20 blobs/frame. Leave as is.
+     (ii) The struct-array construction at lines 49-60 is fine.
+          Slightly tidier:
+              [blobs.centroid] = stats.Centroid;
+              [blobs.area]     = stats.Area;
+              [blobs.bbox]     = stats.BoundingBox;
+          (after preallocating blobs(numel(stats))) — but this is
+          stylistic only.
+
+renderFrame.m
+  - See [PERF-3]. The single biggest display-side win.
+  - Title `sprintf('Cam %d | blobs: %d', i, numel(blobs{i}))` is
+    fine; consider also showing FPS on the figure for live tuning.
+
+logFrame.m
+  - See [PERF-4]. Also doc-update for blobCentroids.
+
+saveSession.m
+  - `datestr(now, ...)` is the legacy form; `datetime("now"), 'Format'` is
+    current. Functionally identical; replace at leisure.
+  - `save(filename, 'log');` — for long sessions with stored
+    blobCentroids the .mat will grow. Consider `save(..., '-v7.3')`
+    if you ever go past 2 GB. Not currently necessary.
+
+calibrateIntrinsics.m
+  resolved
+
+calibrateExtrinsics.m
+  - See [BUG-2], [BUG-5].
+  - The "greedy nearest-lower-index" chaining is correct in spirit
+    but blind. With your 3-camera physical layout (cams 1+2 close,
+    cam 3 across the balcony) cam 3 will be chained off cam 2, which
+    is what you want. Make sure the file's reference camera ordering
+    matches the physical proximity (the array indexing of webcamlist
+    is OS-driven and can change between reboots).
+  - Add a sanity check: after composing R{i}, verify
+        norm(R{i}' * R{i} - eye(3)) < 1e-6
+    and `det(R{i}) > 0`. If either fails, the chain has accumulated
+    numerical drift and you want to know.
+  - There is currently no automatic scale fixing. The user must apply
+    Option A or Option B from CALIBRATION_EXPLAINED.txt manually after
+    running this. Consider adding an optional 5th step: prompt the user
+    for the cam1<->cam2 baseline and apply it to all t. Wire to
+    cfg.knownBaseline_m.
+
+validateCalibration.m
+  - See [BUG-2], [DEAD-4].
+  - Pixel-clicking 1 point per camera is rough. Consider letting the
+    user place a point with `drawpoint` and dragging — same package,
+    less error-prone.
+  - When you compute `distFromCam1`, you're using the world-frame
+    cam 1 position which is by definition zero. So `distFromCam1 =
+    norm(point3D)`. Equivalent. Cosmetic.
+
+drawSkyMasks.m
+  - See [BUG-2].
+  - Consider also saving a JPEG preview of each mask alongside the
+    .mat (useful for the dissertation appendix).
+  - The `overlay(:,:,1) = uint8(double(frame(:,:,1)) .* 0.5 + double(skyMasks{i}) * 80);`
+    line tints the red channel. It's fine but you could simplify with
+    `imoverlay(frame, skyMasks{i}, [255 0 0])`.
+
+CALIBRATION_EXPLAINED.txt
+  - Excellent companion document. No changes recommended.
+
+README.md / CLAUDE.md
+  - Status tables out of date relative to the actual file layout.
+    See [CONV-1].
+
+
+================================================================
+6. SUGGESTED ORDER OF WORK
+================================================================
+
+Do these in order; each is a self-contained edit that does not
+require the next.
+
+  Step 1.  Fix [BUG-1]. Single-camera tests will be unchanged but
+           you cannot trust a 2-camera test until this is done.
+           ~30 min including refactor of detectBlobs/preprocessFrame
+           signatures.
+
+  Step 2.  Fix [BUG-2]. Three one-line changes. Untangle now while
+           the repro is fresh.
+
+  Step 3.  Fix [BUG-3] and [BUG-4]. Five minutes each. Do them
+           together with Step 2; it's all "boring small bugs".
+
+  Step 4.  Implement [PERF-1]. Touches updateRingBuf, preprocessFrame,
+           detectBlobs signatures. ~45 min including testing on
+           single camera.
+
+  Step 5.  Implement [PERF-3]. Localised in renderFrame. ~30 min.
+
+  Step 6.  Sweep [CONV-2]. Move magic numbers to buildConfig. ~30 min.
+           Run testSingleCamera afterwards to confirm no behaviour change.
+
+  Step 7.  Decide on [CONV-1]. Either move files into subdirectories
+           or update the docs. Five minutes if you choose to update
+           docs; one commit if you move files (also re-run
+           testSingleCamera afterwards).
+
+  Step 8.  Validate [BUG-5] empirically the next time you have two
+           cameras physically set up. This is the milestone gate to
+           starting work on cross-camera association.
+
+  Step 9.  Stub-out unimplemented modules referenced in see-also
+           comments ([DEAD-7]). Tiny but clears warnings.
+
+After Step 8, the codebase is clean enough to start adding
+associateViews / triangulation / Kalman without dragging baggage.
+
+
+================================================================
+7. NOT-RECOMMENDED CHANGES (deliberately leaving alone)
+================================================================
+
+- The flat-vs-subdirectory question is not worth doing twice.
+  Pick one direction once.
+
+- Do not rewrite the median-background system to a running median
+  yet ([PERF-2c]). The current method is acceptable on a laptop
+  for N<=3 at 720p/30 fps. Switch only if profiling shows median
+  is the bottleneck, which testSingleCamera will tell you.
+
+- Do not parallelise acquireFrames yet ([PERF-5]). The complexity
+  is not justified until empirical sync rates are measured under
+  the actual hardware setup.
+
+- The Image Processing Toolbox calls (regionprops, imopen, imclose,
+  vision.ForegroundDetector) are correctly chosen and tuned. No
+  reason to swap any of these for hand-rolled equivalents.
+
+
+End of review.
