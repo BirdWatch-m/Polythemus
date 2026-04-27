@@ -1,57 +1,86 @@
-function intrinsics = calibrateIntrinsics(camIdx, cfg, squareSizeM, boardSize)
-% CALIBRATEINTRINSICS  Calibrate intrinsic parameters for one camera.
+% CALIBRATEINTRINSICS  Single-camera intrinsic calibration via auto-capture.
 %
-%   intrinsics = calibrateIntrinsics(camIdx, cfg, squareSizeM)
-%   intrinsics = calibrateIntrinsics(camIdx, cfg, squareSizeM, boardSize)
+%   Script. Edit the USER INPUTS block below, then run with F5.
 %
-%   Displays a live feed from the specified camera and auto-captures frames
+%   Displays a live feed from the selected camera and auto-captures frames
 %   when a checkerboard is detected and held steady. Runs estimation once
-%   enough frames are collected. Save the result for each camera separately,
-%   then pass all results to calibrateExtrinsics.
+%   enough frames are collected and saves a cameraParameters object to
+%   saveFile. Pass that path to calibrateExtrinsics later.
 %
-%   If boardSize is omitted, the board dimensions are detected automatically
-%   from the first frame where a checkerboard is found. The detected size is
-%   printed to the console and requires confirmation before captures begin.
+%   If boardSize is empty, the board dimensions are detected automatically
+%   from the first frame where a checkerboard is found.
 %
-%   INPUTS
-%     camIdx      — integer index into webcamlist() for camera
-%     cfg         — struct from buildConfig()
-%     squareSizeM — physical side length of one square in metres
-%     boardSize   — (optional) [rows cols] interior corners of board
-%                   e.g. [5 7] for a 6x8 square board (corners = squares-1)
-%                   omit to auto-detect from the first detected frame
-%    
+%   USER INPUTS
+%     camIdx        integer index into webcamlist()
+%     squareSizeM   physical side length of one square, in metres
+%     boardSize     [rows cols] interior corners, or [] for auto-detect
+%                   e.g. [5 7] for a 6x8 square board (corners = squares - 1)
+%     saveFile      output path; rename per camera
+%     MIN_CAPTURES  minimum captures required before estimation runs
+%
 %   OUTPUT
-%     intrinsics  — cameraParameters object (MATLAB built-in type).
+%     A .mat file at saveFile containing one variable, intrinsics.
 %
-%   See also: calibrateExtrinsics, buildConfig, estimateCameraParameters
+%   See also: buildConfig, calibrateExtrinsics, estimateCameraParameters
 
-% ---- USER INPUTS ----
-camIdx      = 1;    
-cfg         = buildConfig();                        % index of camera from webcamlist()
-squareSizeM = 0.023;                                % physical square size in metres
-boardSize   = [];                                   % leave empty to auto-detect, or set e.g. [5 7]
-saveFile    = 'calibration/intrinsics_laptopcamtest.mat';    % output path; change for each camera
+% =========================================================================
+% USER INPUTS — edit these before running
+% =========================================================================
 
-MIN_CAPTURES  = 15;
-AUTO_INTERVAL = 1.5;     % min seconds between auto-captures
-STABILITY_THR = 3.0;   % max px movement between frames to count as stable
+disp('Connected cameras:'); disp(webcamlist);
 
-if nargin < 4 || isempty(boardSize)
-    boardSize = [];   % set automatically on first detection
-end
+camIdx       = 2;                                  % index into webcamlist()
+squareSizeM  = 0.023;                              % physical square size in metres
+boardSize    = [];                              % [] = auto-detect on first frame
+saveFile     = 'calibration/intrinsics_MY1.mat';   % rename per camera
 
-boardConfirmed = ~isempty(boardSize);   % skip confirmation if size was provided
+cfg = buildConfig();
+
+MIN_CAPTURES  = 25;        % min captures before estimation runs
+AUTO_INTERVAL = 1.5;       % min seconds between auto-captures
+STABILITY_THR = 2.0;       % max px drift between frames to count as stable
+
+
+% Camera parameters - set here for Myria MY8077 after testing - change if
+% different camera
 
 cam = webcam(camIdx);
 cam.Resolution = sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2));
+
+% Disable all auto-control functions
+cam.ExposureMode = 'manual';
+cam.WhiteBalanceMode = 'manual';
+cam.FocusMode = 'manual';
+
+% Disable processing artifacts
+cam.BacklightCompensation = 0;
+cam.Sharpness = 0;
+cam.Gamma = 100;
+cam.Brightness = 0;
+cam.Zoom = 0;
+cam.Pan = 0;
+cam.Tilt = 0;
+cam.Roll = 3;
+
+% Calibration values (indoors)
+cam.Exposure = -5;
+cam.Gain = 64;
+cam.WhiteBalance = 4000;   % adjust all 3 of these for ambient conditions
+cam.Focus = 100;           % empirically determined sharp-at-1m value
+
+pause(2); 
+
+% =========================================================================
+
+boardConfirmed = ~isempty(boardSize);
 
 H = cfg.resolution(2);
 W = cfg.resolution(1);
 
 imagePoints = {};
 nCaptured   = 0;
-lastCapTime = -Inf;
+tCalibStart = tic();
+lastCapTime = -Inf;        % seconds since tCalibStart
 prevPts     = [];
 
 fig = figure('Name', sprintf('Intrinsic calibration — camera %d', camIdx), ...
@@ -68,7 +97,6 @@ fprintf('Press Q when done (min %d captures required).\n\n', MIN_CAPTURES);
 while ishandle(fig)
 
     frame    = snapshot(cam);
-    frameGry = rgb2gray(frame);
 
     % Detect corners without enforcing size — accept whatever the detector finds.
     [pts, detectedSize] = detectCheckerboardPoints(frame);
@@ -96,11 +124,12 @@ while ishandle(fig)
     isStable = boardFound && drift < STABILITY_THR;
 
     % Auto-capture when stable and enough time has elapsed.
-    timePassed = (datetime("now") - lastCapTime) * 86400;   % seconds (now returns fractional days)
+    nowT       = toc(tCalibStart);
+    timePassed = nowT - lastCapTime;
     if isStable && timePassed > AUTO_INTERVAL && all(isfinite(pts(:)))
-        nCaptured             = nCaptured + 1;
+        nCaptured              = nCaptured + 1;
         imagePoints{nCaptured} = pts;
-        lastCapTime           = datetime("now");
+        lastCapTime            = nowT;
         fprintf('Captured %d/%d\n', nCaptured, MIN_CAPTURES);
     end
 
@@ -134,11 +163,11 @@ end
 fprintf('\nRunning estimation on %d captures...\n', nCaptured);
 
 worldPoints = generateCheckerboardPoints(boardSize, squareSizeM);
-imagePoints  = cat(3, imagePoints{:});
+imagePoints = cat(3, imagePoints{:});
 fprintf('Board size used: [%d %d] interior corners.\n', boardSize(1), boardSize(2));
 
 % Estimate camera parameters from collected image/world point pairs.
-[intrinsics, ~, reprErrors] = estimateCameraParameters( ...
+intrinsics = estimateCameraParameters( ...
     imagePoints, worldPoints, ...
     'ImageSize',  [H W], ...
     'WorldUnits', 'meters');
@@ -166,8 +195,5 @@ title(sprintf('Camera %d — mean %.3fpx', camIdx, meanErr));
 yline(1.0, 'r--', '1px limit');
 yline(0.5, 'g--', '0.5px target');
 
-%save to file input at start
 save(saveFile, 'intrinsics');
 fprintf('Saved to %s\n', saveFile);
-
-end

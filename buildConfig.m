@@ -15,8 +15,8 @@ function cfg = buildConfig()
 %   See also: initSystem, main
 
 % --- Camera setup ---
-cfg.N          = 2;            % number of cameras; only change this line to add/remove cameras
-cfg.resolution = [1280, 720];  % [width height] px; 720p preferred over 1080p (allows 60fps)
+cfg.N          = 1;            % number of cameras; only change this line to add/remove cameras
+cfg.resolution = [1920, 1080]; % [width height] px;
 cfg.fps        = 30;           % frames per second; try 60 if cameras support it at cfg.resolution
 
 % --- Ring buffer ---
