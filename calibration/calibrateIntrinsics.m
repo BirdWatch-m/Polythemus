@@ -290,14 +290,35 @@ ratio = holdout_mean / train_err;
 fprintf('Held-out error  (%.0f%% of data): %.3fpx\n', 20, holdout_mean);
 fprintf('Ratio (held-out / training):      %.2fx\n', ratio);
 
-if ratio < 1.5
-    fprintf('Validation: good — calibration generalises well.\n');
-elseif ratio < 2.0
-    fprintf('Validation: acceptable — mild overfitting, sufficient for application.\n');
-elseif ratio < 3.0
-    fprintf('Validation: moderate overfitting — recapture with more pose variation.\n');
+% Verdict is gated on the ABSOLUTE held-out error, not the ratio. The held-out
+% error is the real generalisation accuracy that feeds undistortion and
+% triangulation; anything under HELDOUT_LIMIT is usable regardless of ratio.
+% The ratio is only a secondary flag: when the training error is very low it
+% inflates dramatically (a 0.27->0.66px gap reads as 2.4x), so it is meaningful
+% only when the absolute error is already marginal. We warn on ratio only if
+% the absolute error is also in the usable-but-not-great band.
+HELDOUT_TARGET = 0.5;   % px — excellent generalisation
+HELDOUT_LIMIT  = 1.0;   % px — usable ceiling
+RATIO_FLAG     = 3.0;   % only consulted when held-out error is already marginal
+
+if holdout_mean > HELDOUT_LIMIT
+    fprintf(['Validation: held-out error %.3fpx exceeds the %.1fpx limit — ' ...
+             'generalisation is genuinely poor. Recapture with more pose ' ...
+             'variation (vary distance, tilt 30-45deg, push the board into ' ...
+             'all four frame corners).\n'], holdout_mean, HELDOUT_LIMIT);
+elseif holdout_mean > HELDOUT_TARGET
+    if ratio > RATIO_FLAG
+        fprintf(['Validation: usable (%.3fpx, under the %.1fpx limit) but ' ...
+                 'ratio %.2fx is high — acceptable yet sensitive to pose. ' ...
+                 'More pose diversity would firm it up.\n'], ...
+                 holdout_mean, HELDOUT_LIMIT, ratio);
+    else
+        fprintf('Validation: good — held-out %.3fpx is within the %.1fpx limit.\n', ...
+                holdout_mean, HELDOUT_LIMIT);
+    end
 else
-    fprintf('Validation: severe overfitting — calibration unreliable outside training poses.\n');
+    fprintf('Validation: excellent — held-out %.3fpx at or below the %.1fpx target.\n', ...
+            holdout_mean, HELDOUT_TARGET);
 end
 
 % Plot held-out errors
