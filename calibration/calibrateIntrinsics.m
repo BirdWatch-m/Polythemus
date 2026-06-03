@@ -31,44 +31,71 @@ disp('Connected cameras:'); disp(webcamlist);
 
 camIdx       = 2;                                  % index into webcamlist()
 squareSizeM  = 0.023;                              % physical square size in metres
-boardSize    = [];                              % [] = auto-detect on first frame
+boardSize    = [7 10];                             % [] = auto-detect on first frame
 saveFile     = 'calibration/intrinsics_MY1.mat';   % rename per camera
 
 cfg = buildConfig();
 
 MIN_CAPTURES  = 25;        % min captures before estimation runs
-AUTO_INTERVAL = 1.5;       % min seconds between auto-captures
-STABILITY_THR = 2.0;       % max px drift between frames to count as stable
-
-
-% Camera parameters - set here for Myria MY8077 after testing - change if
-% different camera
+AUTO_INTERVAL = 2;         % min seconds between auto-captures
+STABILITY_THR = 0.5;       % max px drift between frames to count as stable
 
 cam = webcam(camIdx);
 cam.Resolution = sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2));
 
-% Disable all auto-control functions
-cam.ExposureMode = 'manual';
-cam.WhiteBalanceMode = 'manual';
-cam.FocusMode = 'manual';
+% Camera parameters. WARNING: Different camera models return different
+% parameters of the webcam() object. Adjust accordingly for script to run!
 
-% Disable processing artifacts
+%MY8077
+cam.FocusMode = 'manual';
+cam.Focus = 0;
+cam.Gain = 0;
 cam.BacklightCompensation = 0;
 cam.Sharpness = 0;
-cam.Gamma = 100;
+cam.Gamma = 300;
 cam.Brightness = 0;
 cam.Zoom = 0;
 cam.Pan = 0;
 cam.Tilt = 0;
-cam.Roll = 3;
+cam.Roll = 3;   
 
-% Calibration values (indoors)
-cam.Exposure = -5;
-cam.Gain = 64;
-cam.WhiteBalance = 4000;   % adjust all 3 of these for ambient conditions
-cam.Focus = 100;           % empirically determined sharp-at-1m value
+% %C922
+% cam.FocusMode = 'manual';
+% cam.Focus = 0;
+% cam.Gain = 0;
+% cam.BacklightCompensation = 0;
+% cam.Sharpness = 0;
+% cam.Gamma = 300;
+% cam.Brightness = 0;
+% cam.Zoom = 0;
+% cam.Pan = 0;
 
-pause(2); 
+% Find auto WhiteBalance, then lock
+cam.WhiteBalanceMode = 'auto';
+pause(3);
+cam.WhiteBalanceMode = 'manual';
+
+%Manually set Exposure
+cam.ExposureMode = 'manual';
+cam.Exposure     = -4;  %fiddle with this
+
+pause(1); 
+
+% Verify intensity is usable before starting capture loop
+img_check = rgb2gray(snapshot(cam));
+fprintf('Pre-calibration image check — Min:%d  Mean:%.1f  Max:%d\n', ...
+    min(img_check(:)), mean(img_check(:)), max(img_check(:)));
+if mean(img_check(:)) < 45
+    warning('calibrateIntrinsics:darkScene', ...
+        'Mean intensity %.1f below target (45). Add light or increase Exposure.', ...
+        mean(img_check(:)));
+elseif max(img_check(:)) > 130
+    warning('calibrateIntrinsics:brightScene', ...
+        'Max intensity %d near ceiling (135). Risk of corner clipping.', ...
+        max(img_check(:)));
+else
+    fprintf('Image brightness: good.\n');
+end
 
 % =========================================================================
 
@@ -187,6 +214,95 @@ else
     fprintf('Calibration quality: good.\n');
 end
 
+% Persist the calibration BEFORE the holdout test, so a good result is never
+% lost if the (deprecated) holdout helpers error on a newer MATLAB version.
+save(saveFile, 'intrinsics');
+fprintf('Saved to %s\n', saveFile);
+
+% =========================================================================
+% HOLDOUT VALIDATION
+% =========================================================================
+fprintf('\nRunning holdout validation...\n');
+
+rng(42);
+n = nCaptured;
+idx = randperm(n);
+n_train = round(0.8 * n);
+train_idx = idx(1:n_train);
+holdout_idx = idx(n_train+1:end);
+
+% Reconstruct cell arrays for splitting
+imagePoints_cell = squeeze(num2cell(imagePoints, [1 2]));   % back to cell of [Nx2] arrays
+
+train_pts = cat(3, imagePoints_cell{train_idx});
+holdout_pts_cell = imagePoints_cell(holdout_idx);
+
+% Calibrate on training subset only
+intrinsics_train = estimateCameraParameters( ...
+    train_pts, worldPoints, ...
+    'ImageSize',  [H W], ...
+    'WorldUnits', 'meters');
+
+train_err = intrinsics_train.MeanReprojectionError;
+fprintf('Training subset error (%.0f%% of data): %.3fpx\n', 80, train_err);
+
+% Evaluate on held-out points
+n_holdout = numel(holdout_idx);
+holdout_errors = zeros(n_holdout, 1);
+valid = false(n_holdout, 1);
+
+for i = 1:n_holdout
+    pts_h = holdout_pts_cell{i};
+    
+    if isempty(pts_h) || any(~isfinite(pts_h(:)))
+        continue
+    end
+    
+    valid(i) = true;
+    
+    % undistort points using training-set intrinsics
+    pts_undist = undistortPoints(pts_h, intrinsics_train);
+    
+    % estimate extrinsics for this held-out view
+    [R, t] = extrinsics(pts_undist, worldPoints, intrinsics_train);
+    
+    % project world points into image
+    projected = worldToImage(intrinsics_train, R, t, [worldPoints, zeros(size(worldPoints,1), 1)]);
+    
+    % per-image error
+    diffs = pts_h - projected;
+    holdout_errors(i) = mean(sqrt(sum(diffs.^2, 2)));
+end
+
+valid_errors = holdout_errors(valid);
+holdout_mean = mean(valid_errors);
+ratio = holdout_mean / train_err;
+
+fprintf('Held-out error  (%.0f%% of data): %.3fpx\n', 20, holdout_mean);
+fprintf('Ratio (held-out / training):      %.2fx\n', ratio);
+
+if ratio < 1.5
+    fprintf('Validation: good — calibration generalises well.\n');
+elseif ratio < 2.0
+    fprintf('Validation: acceptable — mild overfitting, sufficient for application.\n');
+elseif ratio < 3.0
+    fprintf('Validation: moderate overfitting — recapture with more pose variation.\n');
+else
+    fprintf('Validation: severe overfitting — calibration unreliable outside training poses.\n');
+end
+
+% Plot held-out errors
+figure('Name', sprintf('Holdout validation — camera %d', camIdx));
+bar(valid_errors);
+yline(0.5, 'g--', '0.5px target');
+yline(1.0, 'r--', '1px limit');
+yline(holdout_mean, 'b--', sprintf('Held-out mean %.3fpx', holdout_mean));
+xlabel('Held-out capture index');
+ylabel('Reprojection error (px)');
+title(sprintf('Camera %d — train %.3fpx | held-out %.3fpx | ratio %.2fx', ...
+    camIdx, train_err, holdout_mean, ratio));
+% =========================================================================
+
 % Show reprojection error plot for visual inspection.
 figure('Name', sprintf('Reprojection errors — camera %d', camIdx));
 bar(reprErrors);
@@ -194,6 +310,3 @@ xlabel('Capture index'); ylabel('Mean error (px)');
 title(sprintf('Camera %d — mean %.3fpx', camIdx, meanErr));
 yline(1.0, 'r--', '1px limit');
 yline(0.5, 'g--', '0.5px target');
-
-save(saveFile, 'intrinsics');
-fprintf('Saved to %s\n', saveFile);
