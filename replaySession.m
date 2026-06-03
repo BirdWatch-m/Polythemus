@@ -53,7 +53,9 @@ open(vw);
 % Render each frame with overlay and write to video.
 for k = 1:nFrames
 
-    frame = imread(fullfile(frameDir, frameFiles(k).folder, frameFiles(k).name));
+    % frameFiles(k).folder is already an absolute path; prefixing frameDir
+    % again would produce a bogus concatenated path that imread can't find.
+    frame = imread(fullfile(frameFiles(k).folder, frameFiles(k).name));
 
     % Retrieve blob data for this frame from log.
     % log.nBlobs is [N x nFrames]; blob centroids are not stored yet —
