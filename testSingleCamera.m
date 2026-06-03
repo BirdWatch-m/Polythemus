@@ -58,6 +58,7 @@ W = cfg.resolution(1);
 ringBuf    = {zeros(H, W, cfg.ringBufLen, 'uint8')};
 ringIdx    = 1;
 bgMedian   = {zeros(H, W, 'double')};
+bgFrames   = zeros(1, 1);   % per-camera median-refresh counter (1 camera here)
 fgDetector = vision.ForegroundDetector('NumGaussians', 3, ...
                                         'NumTrainingFrames', 60, ...
                                         'LearningRate', 0.005);
@@ -168,12 +169,14 @@ while ishandle(fig)
     t0 = tic;
     frames = {frame};
     state.bgMedian    = bgMedian;
+    state.bgFramesSinceUpdate = bgFrames;
     state.ringBuf     = ringBuf;
     state.fgDetectors = {fgDetector};
     state.skyMask     = skyMask;
- 
+
     [blobs, state] = detectBlobs(frames, state, cfg);
     bgMedian       = state.bgMedian;
+    bgFrames       = state.bgFramesSinceUpdate;
     t_loop_detect(end+1) = toc(t0)*1000;
  
     % 4. Display.

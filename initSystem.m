@@ -14,6 +14,7 @@ function state = initSystem(cfg)
 %       .ringBuf      {1xN} cell of H x W x ringBufLen uint8 arrays
 %       .ringIdx      [1xN] current write position per ring buffer
 %       .bgMedian     {1xN} cell of H x W double (median background image)
+%       .bgFramesSinceUpdate [1xN] frames since each camera's last median refresh
 %       .fgDetectors  {1xN} cell of vision.ForegroundDetector objects
 %       .skyMask      {1xN} cell of H x W logical arrays
 %       .calibration  struct — camera params + fundamental matrices (see below)
@@ -91,6 +92,10 @@ fprintf('Ring buffers allocated (%.0f MB per camera).\n', H*W*cfg.ringBufLen/1e6
 
 state.bgMedian    = cell(1, N);
 state.fgDetectors = cell(1, N);
+
+% Per-camera median-refresh counter. One entry per camera so each camera's
+% median background updates independently (see applyBackground / BUG-1).
+state.bgFramesSinceUpdate = zeros(1, N);
 
 for i = 1:N
     state.bgMedian{i} = zeros(H, W, 'double');   % populated once ring buffer fills

@@ -24,6 +24,10 @@ cfg.fps        = 30;           % frames per second; try 60 if cameras support it
 cfg.ringBufLen   = 90;   % total frames stored (~3s at 30fps)
 cfg.medianBufLen = 60;   % frames used for temporal median background (~2s)
 
+% --- Background model ---
+cfg.bgUpdateInterval  = 15;  % recompute the median background every N frames (per camera)
+cfg.medianFgThreshold = 35;  % |frame - median| above this (0-255) marks a pixel foreground
+
 % --- Detection thresholds ---
 % Epipolar: max distance (px) from predicted epipolar line to accept a cross-camera match.
 cfg.epiThreshold  = 3.0;   % increase to 5.0 if valid birds are being rejected
