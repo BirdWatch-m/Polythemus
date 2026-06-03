@@ -32,7 +32,8 @@ disp('Connected cameras:'); disp(webcamlist);
 camIdx       = 2;                                  % index into webcamlist()
 squareSizeM  = 0.023;                              % physical square size in metres
 boardSize    = [7 10];                             % [] = auto-detect on first frame
-saveFile     = 'calibration/intrinsics_MY1.mat';   % rename per camera
+saveName = 'intrinsics_LG1.mat';   % rename per camera
+saveFile = fullfile(fileparts(mfilename('fullpath')), saveName);
 
 cfg = buildConfig();
 
@@ -47,19 +48,6 @@ cam.Resolution = sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2));
 % parameters of the webcam() object. Adjust accordingly for script to run!
 
 %MY8077
-cam.FocusMode = 'manual';
-cam.Focus = 0;
-cam.Gain = 0;
-cam.BacklightCompensation = 0;
-cam.Sharpness = 0;
-cam.Gamma = 300;
-cam.Brightness = 0;
-cam.Zoom = 0;
-cam.Pan = 0;
-cam.Tilt = 0;
-cam.Roll = 3;   
-
-% %C922
 % cam.FocusMode = 'manual';
 % cam.Focus = 0;
 % cam.Gain = 0;
@@ -69,6 +57,21 @@ cam.Roll = 3;
 % cam.Brightness = 0;
 % cam.Zoom = 0;
 % cam.Pan = 0;
+% cam.Tilt = 0;
+% cam.Roll = 3;   
+
+%C922 Pro Stream
+cam.FocusMode = 'manual';
+cam.Focus = 0;                 % 0 = focus at infinity
+cam.Gain = 0;
+cam.BacklightCompensation = 0;
+cam.Sharpness = 0;
+cam.Brightness = 128;          % C922 range 0-255; 128 = neutral (NOT 0)
+cam.Contrast = 128;
+cam.Saturation = 128;
+cam.Zoom = 100;                % C922 range 100-500; 100 = no zoom (NOT 0)
+cam.Pan = 0;
+cam.Tilt = 0;
 
 % Find auto WhiteBalance, then lock
 cam.WhiteBalanceMode = 'auto';
@@ -266,10 +269,16 @@ for i = 1:n_holdout
     % estimate extrinsics for this held-out view
     [R, t] = extrinsics(pts_undist, worldPoints, intrinsics_train);
     
-    % project world points into image
-    projected = worldToImage(intrinsics_train, R, t, [worldPoints, zeros(size(worldPoints,1), 1)]);
-    
-    % per-image error
+    % Project world points back into the image. ApplyDistortion MUST be true:
+    % pts_h are the raw (distorted) detected corners, so the projection has to
+    % carry distortion too. Without it, worldToImage returns ideal pinhole
+    % pixels and this "error" just measures lens distortion (large near the
+    % frame edges) — which falsely reads as severe overfitting.
+    projected = worldToImage(intrinsics_train, R, t, ...
+                             [worldPoints, zeros(size(worldPoints,1), 1)], ...
+                             'ApplyDistortion', true);
+
+    % per-image reprojection error in raw pixel space (matches MeanReprojectionError)
     diffs = pts_h - projected;
     holdout_errors(i) = mean(sqrt(sum(diffs.^2, 2)));
 end
