@@ -92,7 +92,9 @@ for i = 1:N
 end
 
 % Close cameras immediately; we work from the captured frames.
-for i = 1:N, clear cams{i}; end
+% Dropping every reference releases the underlying webcam handles.
+% (`clear cams{i}` does NOT work — clear takes literal names, not indices.)
+cams = {};
 
 % Show captured frames side by side for visual confirmation.
 figure('Name', 'Captured frames — verify scene overlap');

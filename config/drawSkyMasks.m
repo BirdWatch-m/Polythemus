@@ -61,8 +61,9 @@ for i = 1:N
     uiwait(fig);
 end
 
-% Release cameras.
-for i = 1:N, clear cams{i}; end
+% Release cameras. Dropping every reference releases the webcam handles.
+% (`clear cams{i}` does NOT work — clear takes literal names, not indices.)
+cams = {};
 
 % Save.
 if ~isfolder(fileparts(cfg.skyMaskFile))
