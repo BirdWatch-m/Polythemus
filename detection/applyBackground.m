@@ -34,13 +34,14 @@ function [mask, bgMedian, framesSinceUpdate] = applyBackground(frameGray, bgMedi
 %   See also: preprocessFrame, gateBlobs
 
 % Update median background from the filled portion of the ring buffer every
-% cfg.bgUpdateInterval frames.
-% median() along dim 3 gives per-pixel median across stored frames.
+% cfg.bgUpdateInterval frames. The buffer is subsampled by cfg.bgMedianStride
+% to keep the median cheap — on slowly-drifting sky a sparse sample is fine.
+% median() along dim 3 gives per-pixel median across the sampled frames.
 nFrames  = min(cfg.medianBufLen, cfg.ringBufLen);
 
 framesSinceUpdate = framesSinceUpdate + 1;
 if framesSinceUpdate >= cfg.bgUpdateInterval || all(bgMedian(:) == 0)
-    bgMedian = double(median(ringBuf_i(:,:,1:nFrames), 3));
+    bgMedian = double(median(ringBuf_i(:,:,1:cfg.bgMedianStride:nFrames), 3));
     framesSinceUpdate = 0;
 end
 
