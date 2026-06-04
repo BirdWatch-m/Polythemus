@@ -80,10 +80,11 @@ while ishandle(fig)
     accAcq = accAcq + toc(tA) * 1000;
 
     % 2-3. Ring buffer update + detection (per-camera bgMedian + bgFramesSinceUpdate, BUG-1).
+    %      updateRingBuf returns the grayscale frames so detection reuses them (PERF-1).
     tD = tic;
-    [state.ringBuf, state.ringIdx] = ...
+    [state.ringBuf, state.ringIdx, grayFrames] = ...
         updateRingBuf(state.ringBuf, state.ringIdx, frames, cfg);
-    [blobs, state] = detectBlobs(frames, state, cfg);
+    [blobs, state] = detectBlobs(grayFrames, state, cfg);
     accDet = accDet + toc(tD) * 1000;
 
     % 4. Display side-by-side feeds with overlays.

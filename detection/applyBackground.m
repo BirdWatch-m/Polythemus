@@ -20,7 +20,7 @@ function [mask, bgMedian, framesSinceUpdate] = applyBackground(frameGray, bgMedi
 %
 %   INPUTS
 %     frameGray         — H x W uint8 grayscale current frame
-%     bgMedian          — H x W double current median background estimate
+%     bgMedian          — H x W int16 current median background estimate
 %     ringBuf_i         — H x W x ringBufLen uint8 ring buffer for this camera
 %     framesSinceUpdate — frames elapsed since this camera's last median refresh
 %     fgDetector        — vision.ForegroundDetector object for this camera
@@ -28,7 +28,7 @@ function [mask, bgMedian, framesSinceUpdate] = applyBackground(frameGray, bgMedi
 %
 %   OUTPUTS
 %     mask              — H x W logical foreground mask
-%     bgMedian          — H x W double updated median background
+%     bgMedian          — H x W int16 updated median background
 %     framesSinceUpdate — updated counter (0 if the median was refreshed)
 %
 %   See also: preprocessFrame, gateBlobs
@@ -41,12 +41,13 @@ nFrames  = min(cfg.medianBufLen, cfg.ringBufLen);
 
 framesSinceUpdate = framesSinceUpdate + 1;
 if framesSinceUpdate >= cfg.bgUpdateInterval || all(bgMedian(:) == 0)
-    bgMedian = double(median(ringBuf_i(:,:,1:cfg.bgMedianStride:nFrames), 3));
+    bgMedian = int16(median(ringBuf_i(:,:,1:cfg.bgMedianStride:nFrames), 3));
     framesSinceUpdate = 0;
 end
 
 % Median foreground: absolute difference from median background, thresholded.
-diffImg    = abs(double(frameGray) - bgMedian);
+% int16 (not double) keeps this 4x lighter on memory bandwidth.
+diffImg    = abs(int16(frameGray) - bgMedian);
 mask_median = diffImg > cfg.medianFgThreshold;   % intensity units (0-255)
 
 % GMM foreground, ANDed with the median model so a pixel is foreground only if

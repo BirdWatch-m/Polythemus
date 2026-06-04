@@ -162,11 +162,12 @@ while ishandle(fig)
     end
     prevTimestamp = timestamp;
  
-    % 2. Update ring buffer.
-    ringBuf{1}(:,:,ringIdx) = rgb2gray(frame);
+    % 2. Update ring buffer (convert to grayscale once; reuse for detection).
+    frameGray = rgb2gray(frame);
+    ringBuf{1}(:,:,ringIdx) = frameGray;
     ringIdx = mod(ringIdx, cfg.ringBufLen) + 1;
     ringFillPct = min(100, round(100 * frameCount / cfg.medianBufLen));
- 
+
     % 3. Detect.
     t0 = tic;
     frames = {frame};
@@ -176,7 +177,7 @@ while ishandle(fig)
     state.fgDetectors = {fgDetector};
     state.skyMask     = skyMask;
 
-    [blobs, state] = detectBlobs(frames, state, cfg);
+    [blobs, state] = detectBlobs({frameGray}, state, cfg);
     bgMedian       = state.bgMedian;
     bgFrames       = state.bgFramesSinceUpdate;
     t_loop_detect(end+1) = toc(t0)*1000;
