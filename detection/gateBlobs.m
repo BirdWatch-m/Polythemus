@@ -20,7 +20,15 @@ function blobs = gateBlobs(mask, skyMask, cfg)
 %
 %   See also: applyBackground, preprocessFrame, associateViews
 
-% Restrict detection to sky region only.
+% Restrict detection to sky region only. Guard first: a sky mask drawn at a
+% different resolution than the current frame would make the AND below fail
+% with a cryptic "incompatible sizes" error far from the real cause.
+if ~isequal(size(mask), size(skyMask))
+    error('gateBlobs:maskSizeMismatch', ...
+          ['Sky mask is %dx%d but the frame is %dx%d.\n' ...
+           'Re-run drawSkyMasks at the current resolution.'], ...
+          size(skyMask,1), size(skyMask,2), size(mask,1), size(mask,2));
+end
 mask = mask & skyMask;
 
 % Morphological cleanup: remove isolated noise pixels, then fill small gaps.

@@ -132,7 +132,14 @@ end
 
 state.skyMask = cell(1, N);
 for i = 1:N
-    state.skyMask{i} = loaded.skyMasks{i};
+    m = loaded.skyMasks{i};
+    if ~isequal(size(m), [H W])
+        error('initSystem:skyMaskSize', ...
+              ['Sky mask %d is %dx%d but frames are %dx%d.\n' ...
+               'Re-run drawSkyMasks at the current resolution.'], ...
+              i, size(m,1), size(m,2), H, W);
+    end
+    state.skyMask{i} = m;
 end
 
 fprintf('Sky masks loaded.\n');
