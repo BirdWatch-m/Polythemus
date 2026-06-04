@@ -33,6 +33,7 @@ cfg.medianBufLen = 60;   % frames used for temporal median background (~2s)
 cfg.bgUpdateInterval  = 15;  % recompute the median background every N frames (per camera)
 cfg.medianFgThreshold = 35;  % |frame - median| above this (0-255) marks a pixel foreground
 cfg.bgMedianStride    = 3;   % subsample the ring buffer by this stride when taking the median (speed)
+cfg.useGMM            = true; % AND the GMM model with the median model; false = median-only (faster)
 
 % --- Detection thresholds ---
 % Epipolar: max distance (px) from predicted epipolar line to accept a cross-camera match.

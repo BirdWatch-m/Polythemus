@@ -49,10 +49,16 @@ end
 diffImg    = abs(double(frameGray) - bgMedian);
 mask_median = diffImg > cfg.medianFgThreshold;   % intensity units (0-255)
 
-% GMM foreground.
-mask_gmm = step(fgDetector, frameGray);
-
-% Both models must agree.
-mask = mask_median & mask_gmm;
+% GMM foreground, ANDed with the median model so a pixel is foreground only if
+% both agree (suppresses false positives). The GMM step() is the costliest part
+% of detection; cfg.useGMM = false drops it for a faster median-only pass —
+% acceptable because cloud/foliage false positives are rejected downstream by
+% the association/tracking stages, not here.
+if cfg.useGMM
+    mask_gmm = step(fgDetector, frameGray);
+    mask     = mask_median & mask_gmm;
+else
+    mask     = mask_median;
+end
 
 end
