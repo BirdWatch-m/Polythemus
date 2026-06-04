@@ -31,25 +31,37 @@ W = cfg.resolution(1);
 fprintf('\nSky mask drawing — %d camera(s)\n', N);
 fprintf('Draw a polygon around the sky region. Double-click to close.\n\n');
 
-% Open all cameras first. Logical camera i -> physical webcamlist index.
-cams = cell(1, N);
-for i = 1:N
-    cams{i} = webcam(cfg.camIndices(i));
-    cams{i}.Resolution = sprintf('%dx%d', W, H);
-end
-
 skyMasks = cell(1, N);
 
 for i = 1:N
     fprintf('Camera %d: draw sky mask now.\n', i);
 
-    frame = snapshot(cams{i});
+    % Open one camera at a time. We only need a single still frame per camera,
+    % and two 1080p streams open at once can saturate USB bandwidth and cause
+    % snapshot timeouts. Logical camera i -> physical webcamlist index.
+    cam = webcam(cfg.camIndices(i));
+    cam.Resolution = sprintf('%dx%d', W, H);
+
+    % Warm-up: let the camera start streaming before the real grab, otherwise
+    % the first snapshot can time out (same reason testSingleCamera warms up).
+    warnState = warning('off', 'all');
+    tWarm = tic();
+    while toc(tWarm) < 2.0
+        try
+            snapshot(cam);
+        catch
+        end
+    end
+    warning(warnState);
+
+    frame = snapshot(cam);
+    cam   = [];   % release immediately — we only needed one frame
 
     fig = figure('Name', sprintf('Draw sky mask — camera %d', i));
     imshow(frame);
     title(sprintf('Camera %d: draw polygon around sky region. Double-click to close.', i));
 
-    % roipoly lets the user click vertices; returns a logical mask.
+    % drawpolygon lets the user click vertices; returns a logical mask.
     roi      = drawpolygon();
     skyMasks{i} = createMask(roi, frame);
 
@@ -60,10 +72,6 @@ for i = 1:N
     title(sprintf('Camera %d mask — close figure to continue', i));
     uiwait(fig);
 end
-
-% Release cameras. Dropping every reference releases the webcam handles.
-% (`clear cams{i}` does NOT work — clear takes literal names, not indices.)
-cams = {};
 
 % Save.
 if ~isfolder(fileparts(cfg.skyMaskFile))
