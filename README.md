@@ -16,7 +16,7 @@ Multi-camera bird detection and 3D tracking system for a Bachelor's final projec
 | Blob extraction and gating | ✅ Complete |
 | Live display | ✅ Complete |
 | Session logging | ✅ Complete |
-| Multi-camera detection loop (`main.m`) | ✅ Runs at N=2; ⚠️ ~3 fps, optimisation pending |
+| Multi-camera detection loop (`main.m`) | ✅ Runs at N=2; ~9.4 fps after PERF pass |
 | Intrinsic calibration | ✅ Complete (MY8077 + C922, 1080p & 720p) |
 | Extrinsic calibration | ⚠️ Run once at N=2, not yet validated |
 | Cross-camera association | ❌ Not yet implemented |
