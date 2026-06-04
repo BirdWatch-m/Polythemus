@@ -16,6 +16,11 @@ function cfg = buildConfig()
 
 % --- Camera setup ---
 cfg.N          = 1;            % number of cameras; only change this line to add/remove cameras
+% Physical webcamlist() index for each logical camera (camera 1 = world origin).
+% Run webcamlist() and VERIFY these each session — the order is OS-driven and can
+% change between reboots/replugs. The laptop built-in is usually index 1, so a
+% rig of two external cameras is typically [2 3]. Must have cfg.N entries.
+cfg.camIndices = 1;
 cfg.resolution = [1920, 1080]; % [width height] px;
 cfg.fps        = 30;           % frames per second; try 60 if cameras support it at cfg.resolution
 

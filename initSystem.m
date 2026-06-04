@@ -48,15 +48,22 @@ N = cfg.N;
 
 available = webcamlist();
 
-if numel(available) < N
-    error('initSystem:notEnoughCameras', ...
-          'Config requests %d cameras but only %d detected.\nAvailable: %s', ...
-          N, numel(available), strjoin(available, ', '));
+if numel(cfg.camIndices) ~= N
+    error('initSystem:camIndexCount', ...
+          'cfg.camIndices has %d entr(y/ies) but cfg.N = %d.', ...
+          numel(cfg.camIndices), N);
+end
+if any(cfg.camIndices < 1) || any(cfg.camIndices > numel(available))
+    error('initSystem:camIndexRange', ...
+          ['cfg.camIndices = [%s] references a camera outside the %d detected.\n' ...
+           'Run webcamlist() and update cfg.camIndices.\nAvailable: %s'], ...
+          num2str(cfg.camIndices), numel(available), strjoin(available, ', '));
 end
 
+% Map each logical camera to its physical webcamlist index (see cfg.camIndices).
 state.cams = cell(1, N);
 for i = 1:N
-    state.cams{i} = webcam(i);
+    state.cams{i} = webcam(cfg.camIndices(i));
     state.cams{i}.Resolution = sprintf('%dx%d', W, H);
 end
 
@@ -65,8 +72,8 @@ for i = 1:N
     parts = sscanf(state.cams{i}.Resolution, '%dx%d');
     if abs(parts(1) - W) > 4 || abs(parts(2) - H) > 4
         warning('initSystem:resolutionMismatch', ...
-                'Camera %d: requested %dx%d but got %s.', ...
-                i, W, H, state.cams{i}.Resolution);
+                'Camera %d (webcam %d): requested %dx%d but got %s.', ...
+                i, cfg.camIndices(i), W, H, state.cams{i}.Resolution);
     end
 end
 

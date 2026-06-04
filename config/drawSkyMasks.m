@@ -31,10 +31,10 @@ W = cfg.resolution(1);
 fprintf('\nSky mask drawing — %d camera(s)\n', N);
 fprintf('Draw a polygon around the sky region. Double-click to close.\n\n');
 
-% Open all cameras first.
+% Open all cameras first. Logical camera i -> physical webcamlist index.
 cams = cell(1, N);
 for i = 1:N
-    cams{i} = webcam(i);
+    cams{i} = webcam(cfg.camIndices(i));
     cams{i}.Resolution = sprintf('%dx%d', W, H);
 end
 

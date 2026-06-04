@@ -49,7 +49,7 @@ cal    = loaded.multiCamParams;
 fprintf('Opening cameras...\n');
 cams = cell(1, N);
 for i = 1:N
-    cams{i} = webcam(i);
+    cams{i} = webcam(cfg.camIndices(i));   % logical camera i -> physical webcamlist index
     cams{i}.Resolution = sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2));
 end
 
