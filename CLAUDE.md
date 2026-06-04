@@ -35,9 +35,11 @@ replaySession.m          Generate annotated video offline from raw frames + log
 
 acquisition/             acquireFrames, updateRingBuf, syncCheck
 detection/               detectBlobs, preprocessFrame, applyBackground, gateBlobs
+association/             associateViews (cross-camera epipolar matching)
 io/                      renderFrame, logFrame, saveSession
 calibration/             calibrateIntrinsics, calibrateExtrinsics, validateCalibration
 config/                  drawSkyMasks
+tests/                   testAssociateViews (synthetic unit test)
 ```
 
 ## Status
@@ -52,7 +54,7 @@ config/                  drawSkyMasks
 | Multi-camera detection loop (main.m) | Runs at N=2 on live sky; ~3 fps, PERF pass pending |
 | Intrinsic calibration | Done — MY8077 + C922, at 1080p and 720p |
 | Extrinsic calibration | Code run once at N=2; NOT validated (scale + BUG-5 pending) |
-| Cross-camera association | Designed, not implemented |
+| Cross-camera association | Epipolar matching implemented + unit-tested; not yet wired into main |
 | Multi-view triangulation | Designed, not implemented |
 | 3D Kalman tracking | Designed, not implemented |
 | Offline replay | Partial (path bug fixed) |

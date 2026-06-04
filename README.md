@@ -19,7 +19,7 @@ Multi-camera bird detection and 3D tracking system for a Bachelor's final projec
 | Multi-camera detection loop (`main.m`) | ✅ Runs at N=2; ⚠️ ~3 fps, optimisation pending |
 | Intrinsic calibration | ✅ Complete (MY8077 + C922, 1080p & 720p) |
 | Extrinsic calibration | ⚠️ Run once at N=2, not yet validated |
-| Cross-camera association | ❌ Not yet implemented |
+| Cross-camera association | 🟡 Implemented + unit-tested (not yet wired into main) |
 | Multi-view triangulation | ❌ Not yet implemented |
 | 3D Kalman tracking | ❌ Not yet implemented |
 | Offline replay | ⚠️ Partial |
@@ -45,6 +45,9 @@ birdtracker/
 │   ├── applyBackground.m
 │   └── gateBlobs.m
 │
+├── association/
+│   └── associateViews.m
+│
 ├── io/
 │   ├── renderFrame.m
 │   ├── logFrame.m
@@ -56,8 +59,11 @@ birdtracker/
 │   ├── validateCalibration.m
 │   └── CALIBRATION_EXPLAINED.txt
 │
-└── config/
-    └── drawSkyMasks.m
+├── config/
+│   └── drawSkyMasks.m
+│
+└── tests/
+    └── testAssociateViews.m
 ```
 
 ## Requirements
