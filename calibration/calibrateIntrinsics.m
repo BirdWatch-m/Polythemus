@@ -32,13 +32,13 @@ disp('Connected cameras:'); disp(webcamlist);
 camIdx       = 2;                                  % index into webcamlist()
 squareSizeM  = 0.023;                              % physical square size in metres
 boardSize    = [7 10];                             % [] = auto-detect on first frame
-saveName = 'intrinsics_LG1.mat';   % rename per camera
+saveName = 'intrinsics_MY1_720.mat';   % rename per camera
 saveFile = fullfile(fileparts(mfilename('fullpath')), saveName);
 
 cfg = buildConfig();
 
 MIN_CAPTURES  = 25;        % min captures before estimation runs
-AUTO_INTERVAL = 2;         % min seconds between auto-captures
+AUTO_INTERVAL = 3;         % min seconds between auto-captures
 STABILITY_THR = 0.5;       % max px drift between frames to count as stable
 
 cam = webcam(camIdx);
@@ -48,30 +48,30 @@ cam.Resolution = sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2));
 % parameters of the webcam() object. Adjust accordingly for script to run!
 
 %MY8077
-% cam.FocusMode = 'manual';
-% cam.Focus = 0;
-% cam.Gain = 0;
-% cam.BacklightCompensation = 0;
-% cam.Sharpness = 0;
-% cam.Gamma = 300;
-% cam.Brightness = 0;
-% cam.Zoom = 0;
-% cam.Pan = 0;
-% cam.Tilt = 0;
-% cam.Roll = 3;   
-
-%C922 Pro Stream
 cam.FocusMode = 'manual';
-cam.Focus = 0;                 % 0 = focus at infinity
+cam.Focus = 0;
 cam.Gain = 0;
 cam.BacklightCompensation = 0;
 cam.Sharpness = 0;
-cam.Brightness = 128;          % C922 range 0-255; 128 = neutral (NOT 0)
-cam.Contrast = 128;
-cam.Saturation = 128;
-cam.Zoom = 100;                % C922 range 100-500; 100 = no zoom (NOT 0)
+cam.Gamma = 300;
+cam.Brightness = 0;
+cam.Zoom = 0;
 cam.Pan = 0;
 cam.Tilt = 0;
+cam.Roll = 3;   
+
+%C922 Pro Stream
+% cam.FocusMode = 'manual';
+% cam.Focus = 0;                 % 0 = focus at infinity
+% cam.Gain = 0;
+% cam.BacklightCompensation = 0;
+% cam.Sharpness = 0;
+% cam.Brightness = 128;          % C922 range 0-255; 128 = neutral (NOT 0)
+% cam.Contrast = 128;
+% cam.Saturation = 128;
+% cam.Zoom = 100;                % C922 range 100-500; 100 = no zoom (NOT 0)
+% cam.Pan = 0;
+% cam.Tilt = 0;
 
 % Find auto WhiteBalance, then lock
 cam.WhiteBalanceMode = 'auto';
@@ -80,25 +80,23 @@ cam.WhiteBalanceMode = 'manual';
 
 %Manually set Exposure
 cam.ExposureMode = 'manual';
-cam.Exposure     = -4;  %fiddle with this
+cam.Exposure     = -1;  %fiddle with this
 
 pause(1); 
 
-% Verify intensity is usable before starting capture loop
-img_check = rgb2gray(snapshot(cam));
-fprintf('Pre-calibration image check — Min:%d  Mean:%.1f  Max:%d\n', ...
-    min(img_check(:)), mean(img_check(:)), max(img_check(:)));
-if mean(img_check(:)) < 45
-    warning('calibrateIntrinsics:darkScene', ...
-        'Mean intensity %.1f below target (45). Add light or increase Exposure.', ...
-        mean(img_check(:)));
-elseif max(img_check(:)) > 130
-    warning('calibrateIntrinsics:brightScene', ...
-        'Max intensity %d near ceiling (135). Risk of corner clipping.', ...
-        max(img_check(:)));
-else
-    fprintf('Image brightness: good.\n');
+% --- Exposure preview: live image + histogram. Press any key to start capturing. ---
+previewFig = figure('Name', 'Exposure preview — press any key to START, Ctrl-C to abort', ...
+                    'KeyPressFcn', @(~,e) setappdata(gcf, 'go', true));
+setappdata(previewFig, 'go', false);
+while ishandle(previewFig) && ~getappdata(previewFig, 'go')
+    g = rgb2gray(snapshot(cam));
+    subplot(1,2,1); imshow(g); title('Live (grayscale)');
+    subplot(1,2,2); imhist(g);
+    title(sprintf('Min %d   Mean %.0f   Max %d', ...
+                  min(g(:)), round(mean(g(:))), max(g(:))));
+    drawnow;
 end
+if ishandle(previewFig), close(previewFig); end
 
 % =========================================================================
 
