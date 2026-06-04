@@ -31,10 +31,14 @@ if ~isequal(size(mask), size(skyMask))
 end
 mask = mask & skyMask;
 
-% Morphological cleanup: remove isolated noise pixels, then fill small gaps.
-se   = strel('disk', 2);
-mask = imopen(mask, se);    % erosion then dilation — removes speckle
-mask = imclose(mask, se);   % dilation then erosion — fills holes within blobs
+% Morphological cleanup: open removes speckle, close fills gaps. Skippable via
+% cfg.useMorphology — the erosion in open can erase small distant targets, so
+% its value at range is under evaluation. Structuring element is precomputed
+% in buildConfig (cfg.morphStrel), not rebuilt per frame.
+if cfg.useMorphology
+    mask = imopen(mask, cfg.morphStrel);   % erosion then dilation — removes speckle
+    mask = imclose(mask, cfg.morphStrel);  % dilation then erosion — fills holes within blobs
+end
 
 % Extract connected regions and their properties.
 stats = regionprops(mask, 'Centroid', 'Area', 'BoundingBox', 'MajorAxisLength', 'MinorAxisLength');

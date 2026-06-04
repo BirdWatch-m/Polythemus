@@ -63,8 +63,14 @@ PERF-1 (single rgb2gray, threaded updateRingBuf -> detectBlobs -> preprocessFram
 + int16 median diff committed, ~11 fps expected — but NOT yet run on hardware
 (ran out of daylight). **Validate next daylight before merging perf/loop -> main.**
 
-**Remaining — behavior-neutral detect optimisation:**
-- Morphology (imopen/imclose full-frame) — trim.
+**Morphology — TEST whether it costs detections (not just perf):**
+Now toggled by `cfg.useMorphology`, radius in `cfg.morphKernelRadius`, strel
+precomputed in `cfg.morphStrel` (no per-frame rebuild). The risk: `imopen` with
+disk-2 erodes a 2px border, so it can **erase ~3x3px distant birds that
+`minBlobArea = 9` is meant to keep** — a false-negative source at range. The area
+gate already drops single-pixel noise, so `imopen` may be largely redundant.
+Test next daylight: `useMorphology = false` (cut it) and/or `morphKernelRadius = 1`,
+watch false negatives vs false positives at range.
 
 **Deferred decision — median-only (`cfg.useGMM = false`):** gives ~13 fps but
 many more false positives (26-39 blobs on clouds/foliage). The GMM AND suppresses

@@ -35,6 +35,14 @@ cfg.medianFgThreshold = 35;  % |frame - median| above this (0-255) marks a pixel
 cfg.bgMedianStride    = 3;   % subsample the ring buffer by this stride when taking the median (speed)
 cfg.useGMM            = true; % AND the GMM model with the median model; false = median-only (faster)
 
+% --- Morphology (foreground mask cleanup before blob extraction) ---
+% WARNING: imopen erodes a morphKernelRadius-pixel border, so it can erase
+% small distant targets (a 3x3px bird vs minBlobArea=9). Evaluate whether this
+% costs real detections at range before trusting it.
+cfg.useMorphology     = true; % open+close the mask; false = skip entirely
+cfg.morphKernelRadius = 2;    % disk radius (px) for open/close
+cfg.morphStrel        = strel('disk', cfg.morphKernelRadius);  % built once; rebuild if radius changes
+
 % --- Detection thresholds ---
 % Epipolar: max distance (px) from predicted epipolar line to accept a cross-camera match.
 cfg.epiThreshold  = 3.0;   % increase to 5.0 if valid birds are being rejected
