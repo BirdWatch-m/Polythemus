@@ -14,6 +14,59 @@ Legend:   [BUG]  correctness defect, will misbehave when run
 
 
 ================================================================
+UPDATE LOG  (changes since this review — newest first)
+================================================================
+
+2026-06-05 — critical bugs fixed + multi-camera prep (branch fix/critical-bugs):
+
+  [BUG-1] RESOLVED. Per-camera median counter now lives in
+          state.bgFramesSinceUpdate (initSystem allocates it; applyBackground/
+          preprocessFrame/detectBlobs plumb it through). Magic 15 and 35 moved
+          to cfg.bgUpdateInterval / cfg.medianFgThreshold.
+  [BUG-2] RESOLVED. `clear cams{i}` replaced with `cams = {}` in
+          calibrateExtrinsics, validateCalibration, drawSkyMasks.
+  [BUG-3] RESOLVED. replaySession reads imread(fullfile(.folder, .name)).
+  [BUG-4] RESOLVED. calibrateIntrinsics is a script; tic/toc instead of
+          datetime; save() moved BEFORE the holdout block (a good result is no
+          longer lost if the holdout throws); pwd-independent saveFile.
+  [BUG-5] PENDING. Extrinsics has now RUN once (plausible unit-scale pose,
+          ~22deg off pure-lateral on a far-field scene), but is NOT validated.
+          Needs validateCalibration + scale-fixing (measured baseline) + the
+          night telemeter measurement. This is the milestone gate.
+  [CONV-2] PARTIAL. applyBackground magic numbers moved to cfg; others remain.
+
+  Work beyond the original review:
+   - cfg.camIndices maps logical cameras to physical webcamlist slots; every
+     multi-cam open uses webcam(cfg.camIndices(i)). initSystem validates it.
+   - Sky-mask dimension check in gateBlobs + initSystem (clear error instead of
+     a cryptic "incompatible sizes" deep in the pipeline).
+   - drawSkyMasks opens one camera at a time with a warmup (USB bandwidth +
+     first-frame timeouts).
+   - calibrateIntrinsics holdout validation: fixed a distortion-space mismatch
+     (worldToImage now uses ApplyDistortion=true) that inflated held-out error
+     ~8x; verdict now gates on ABSOLUTE held-out error, not the ratio. Added a
+     live exposure-histogram preview before capture.
+   - main.m: multi-camera detection smoke test driver (validates BUG-1 at N=2,
+     confirmed on live sky — both cameras report comparable blob counts).
+
+  New issues found this session:
+   - [PERF-NEW] At N=2 / 720p the live loop runs ~3 fps — too slow for birds.
+     Acquisition is cheap (~3ms sync); cost is detect + render, i.e. the
+     deferred PERF cluster: PERF-1 (double rgb2gray), PERF-2 (60-frame median
+     recompute every cfg.bgUpdateInterval frames, both cameras on the same
+     frame -> periodic stall), PERF-3 (per-blob insertShape/insertText in
+     renderFrame). Per-stage timers added to main.m. Needs the PERF pass before
+     real bird capture. Tracked in TODO.md.
+   - [HARDWARE] Two 1080p USB webcams cannot stream simultaneously on the
+     available USB controllers (isochronous bandwidth reservation) -> operating
+     resolution dropped to 720p; intrinsics recalibrated at 720p. Dual 1080p
+     would need the cameras on genuinely separate host controllers.
+   - [HARDWARE] MY8077 (webcam index 2) outputs a compressed ~0-130 intensity
+     range (low Contrast); C922 (index 3) uses full 0-255. The max>130
+     brightness check in calibrateIntrinsics is MY8077-tuned.
+
+
+================================================================
 0. EXECUTIVE SUMMARY
 ================================================================
 

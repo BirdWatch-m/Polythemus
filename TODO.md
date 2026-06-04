@@ -33,3 +33,25 @@ instead of hand-tuning per session.
   - Indoor reference was ≈ −1/−2, so outdoors is ~6–10 stops shorter.
 - These are **MY8077-specific**; the **C922 uses a different exposure scale/range**
   and must be characterised separately.
+
+---
+
+## Performance pass — get the live loop to a usable frame rate  *(needed before real bird capture)*
+
+At N=2 / 720p the `main` loop runs **~3 fps** — far too slow to track birds (need
+15–30 fps). Acquisition is cheap (~3 ms inter-camera sync); the cost is **detect +
+render**. `main.m` now prints per-stage timers (acquire / detect / render ms) — use
+those to target the biggest stage first. The culprits are the deferred PERF items:
+
+- **PERF-3 (`renderFrame`):** `insertShape`/`insertText` called *per blob* in a loop,
+  each rasterising the whole frame, plus `subplot` every frame. Batch the inserts
+  into one array call; reuse axes / use `tiledlayout`. Also consider rendering only
+  every Kth frame — display rate need not equal detection rate.
+- **PERF-2 (median):** the 60-frame median recompute every `cfg.bgUpdateInterval`
+  frames stalls ~0.25 s, and both cameras fire on the same frame. Subsample the
+  buffer, stagger the cameras, or switch to a running median (O(1)/pixel, no scan).
+- **PERF-1 (double `rgb2gray`):** `updateRingBuf` and `preprocessFrame` both convert
+  the same frame. Convert once and pass it through.
+- **PERF-5 (sequential snapshots):** lower priority — sync is already ~3 ms at 720p.
+
+Measure with the timers, fix highest-cost first, re-measure.

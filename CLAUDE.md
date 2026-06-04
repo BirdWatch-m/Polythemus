@@ -29,6 +29,7 @@ Frame acquisition (timestamp-aligned, ring-buffered)
 ```
 buildConfig.m            All system parameters (single source of truth)
 initSystem.m             System init for the multi-camera entry point
+main.m                   Multi-camera detection driver / smoke test (N cameras)
 testSingleCamera.m       Smoke test — runs full single-camera pipeline with diagnostics
 replaySession.m          Generate annotated video offline from raw frames + log
 
@@ -45,15 +46,16 @@ config/                  drawSkyMasks
 |---|---|
 | Configuration, acquisition, ring buffer | Done |
 | Sky mask drawing | Done |
-| Background subtraction (median + GMM) | Done |
+| Background subtraction (median + GMM) | Done; per-camera background fixed (BUG-1) |
 | Blob extraction and gating | Done |
 | Live display, logging, session save | Done |
-| Intrinsic calibration | Done, tested on laptop webcam |
-| Extrinsic calibration | Code written, untested (needs multiple cameras) |
+| Multi-camera detection loop (main.m) | Runs at N=2 on live sky; ~3 fps, PERF pass pending |
+| Intrinsic calibration | Done — MY8077 + C922, at 1080p and 720p |
+| Extrinsic calibration | Code run once at N=2; NOT validated (scale + BUG-5 pending) |
 | Cross-camera association | Designed, not implemented |
 | Multi-view triangulation | Designed, not implemented |
 | 3D Kalman tracking | Designed, not implemented |
-| Offline replay | Partial |
+| Offline replay | Partial (path bug fixed) |
 
 ## Coding conventions for this project
 
@@ -74,6 +76,9 @@ config/                  drawSkyMasks
 - Balconies are enclosed in glass — reflections to be handled by mounting strategy
 - Birds: swallows (~19cm body, 15-22m/s, erratic), pigeons (35cm, 10-20m/s), crows, seagulls, small songbirds
 - Range: 20m to 150m practical
+- **USB bandwidth (measured):** two 1080p webcams cannot stream simultaneously on the available USB host controller(s) — isochronous bandwidth reservation fails outright. Operating resolution is therefore **720p**; intrinsics recalibrated to match. Dual 1080p would need the cameras on genuinely separate host controllers (Thunderbolt/PCIe USB card).
+- Cameras in use: **MY8077** (webcamlist index 2; compressed ~0-130 intensity range, low contrast), **C922 Pro Stream** (index 3; full 0-255). `cfg.camIndices = [2 3]` — verify against `webcamlist()` each session, the order is OS-driven.
+- Current test rig: 2 cameras ~3.5m apart, 720p (differs from the planned 2.25m/6.5m three-camera layout above).
 
 ## What the user prefers
 
