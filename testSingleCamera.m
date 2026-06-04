@@ -16,7 +16,7 @@
 %   Press Q in the live display window to end the session.
 %
 %   USER INPUTS — edit these before running
-camIdx   = 1;       % which camera to use
+camIdx   = 2;       % which camera to use
 nSeconds    = 90;     % how long to run before auto-stopping (0 = Q key only)
 benchFrames = 20;     % frames used for pre-loop benchmark
 saveFrames  = false;  % save raw frames for offline replay
@@ -26,6 +26,8 @@ frameDir    = 'output/frames/';
  
 cfg   = buildConfig();
 cfg.N = 1;   % override to single camera for this test
+cfg.resolution = [1920 1080];
+cfg.camIndices = camIdx;   % keep drawSkyMasks aligned with the tested camera
  
 % Draw sky mask if not already saved.
 if ~isfile(cfg.skyMaskFile)
