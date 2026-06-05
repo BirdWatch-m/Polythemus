@@ -23,6 +23,7 @@ Multi-camera bird detection and 3D tracking system for a Bachelor's final projec
 | Multi-view triangulation | 🟡 Implemented + unit-tested (not yet wired into main) |
 | 3D Kalman tracking | 🟡 Implemented + unit-tested (not yet wired into main) |
 | Offline replay | ⚠️ Partial |
+| Recording + offline driver | 🟡 recordSession + processRecording (untested on hardware) |
 
 ## Project Structure
 
@@ -31,6 +32,8 @@ birdtracker/
 ├── buildConfig.m              All system parameters
 ├── initSystem.m               System initialisation (multi-camera entry point)
 ├── main.m                     Multi-camera detection driver / smoke test (N cameras)
+├── recordSession.m            Capture synchronized frames to disk
+├── processRecording.m         Run the pipeline on a recording, offline
 ├── testSingleCamera.m         Smoke test — runs the full single-camera pipeline
 ├── replaySession.m            Generate annotated video from saved frames + log
 │
@@ -63,6 +66,7 @@ birdtracker/
 │   ├── calibrateIntrinsics.m
 │   ├── calibrateExtrinsics.m
 │   ├── validateCalibration.m
+│   ├── buildFundamentalMatrices.m
 │   └── CALIBRATION_EXPLAINED.txt
 │
 ├── config/

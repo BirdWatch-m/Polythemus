@@ -30,6 +30,8 @@ Frame acquisition (timestamp-aligned, ring-buffered)
 buildConfig.m            All system parameters (single source of truth)
 initSystem.m             System init for the multi-camera entry point
 main.m                   Multi-camera detection driver / smoke test (N cameras)
+recordSession.m          Capture synchronized frames from all cameras to disk
+processRecording.m       Run the pipeline on a recording, offline (detect or full)
 testSingleCamera.m       Smoke test — runs full single-camera pipeline with diagnostics
 replaySession.m          Generate annotated video offline from raw frames + log
 
@@ -39,7 +41,7 @@ association/             associateViews (cross-camera epipolar matching)
 triangulation/           triangulateGroups (DLT multi-view triangulation + reprojection gate)
 tracking/                updateTracks (constant-velocity Kalman, track lifecycle)
 io/                      renderFrame, logFrame, saveSession
-calibration/             calibrateIntrinsics, calibrateExtrinsics, validateCalibration
+calibration/             calibrateIntrinsics, calibrateExtrinsics, validateCalibration, buildFundamentalMatrices
 config/                  drawSkyMasks
 tests/                   testAssociateViews, testTriangulateGroups, testUpdateTracks (synthetic unit tests)
 ```
@@ -60,6 +62,7 @@ tests/                   testAssociateViews, testTriangulateGroups, testUpdateTr
 | Multi-view triangulation | DLT + reprojection gate implemented + unit-tested; not yet wired into main |
 | 3D Kalman tracking | Constant-velocity Kalman + lifecycle implemented + unit-tested; not yet wired into main |
 | Offline replay | Partial (path bug fixed) |
+| Recording + offline driver | recordSession (capture) + processRecording (offline detect/full); untested on hardware |
 
 ## Coding conventions for this project
 
