@@ -36,10 +36,11 @@ replaySession.m          Generate annotated video offline from raw frames + log
 acquisition/             acquireFrames, updateRingBuf, syncCheck
 detection/               detectBlobs, preprocessFrame, applyBackground, gateBlobs
 association/             associateViews (cross-camera epipolar matching)
+triangulation/           triangulateGroups (DLT multi-view triangulation + reprojection gate)
 io/                      renderFrame, logFrame, saveSession
 calibration/             calibrateIntrinsics, calibrateExtrinsics, validateCalibration
 config/                  drawSkyMasks
-tests/                   testAssociateViews (synthetic unit test)
+tests/                   testAssociateViews, testTriangulateGroups (synthetic unit tests)
 ```
 
 ## Status
@@ -55,7 +56,7 @@ tests/                   testAssociateViews (synthetic unit test)
 | Intrinsic calibration | Done — MY8077 + C922, at 1080p and 720p |
 | Extrinsic calibration | Code run once at N=2; NOT validated (scale + BUG-5 pending) |
 | Cross-camera association | Epipolar matching implemented + unit-tested; not yet wired into main |
-| Multi-view triangulation | Designed, not implemented |
+| Multi-view triangulation | DLT + reprojection gate implemented + unit-tested; not yet wired into main |
 | 3D Kalman tracking | Designed, not implemented |
 | Offline replay | Partial (path bug fixed) |
 

@@ -20,7 +20,7 @@ Multi-camera bird detection and 3D tracking system for a Bachelor's final projec
 | Intrinsic calibration | ✅ Complete (MY8077 + C922, 1080p & 720p) |
 | Extrinsic calibration | ⚠️ Run once at N=2, not yet validated |
 | Cross-camera association | 🟡 Implemented + unit-tested (not yet wired into main) |
-| Multi-view triangulation | ❌ Not yet implemented |
+| Multi-view triangulation | 🟡 Implemented + unit-tested (not yet wired into main) |
 | 3D Kalman tracking | ❌ Not yet implemented |
 | Offline replay | ⚠️ Partial |
 
@@ -48,6 +48,9 @@ birdtracker/
 ├── association/
 │   └── associateViews.m
 │
+├── triangulation/
+│   └── triangulateGroups.m
+│
 ├── io/
 │   ├── renderFrame.m
 │   ├── logFrame.m
@@ -63,7 +66,8 @@ birdtracker/
 │   └── drawSkyMasks.m
 │
 └── tests/
-    └── testAssociateViews.m
+    ├── testAssociateViews.m
+    └── testTriangulateGroups.m
 ```
 
 ## Requirements
