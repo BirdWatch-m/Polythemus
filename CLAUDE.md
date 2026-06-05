@@ -37,10 +37,11 @@ acquisition/             acquireFrames, updateRingBuf, syncCheck
 detection/               detectBlobs, preprocessFrame, applyBackground, gateBlobs
 association/             associateViews (cross-camera epipolar matching)
 triangulation/           triangulateGroups (DLT multi-view triangulation + reprojection gate)
+tracking/                updateTracks (constant-velocity Kalman, track lifecycle)
 io/                      renderFrame, logFrame, saveSession
 calibration/             calibrateIntrinsics, calibrateExtrinsics, validateCalibration
 config/                  drawSkyMasks
-tests/                   testAssociateViews, testTriangulateGroups (synthetic unit tests)
+tests/                   testAssociateViews, testTriangulateGroups, testUpdateTracks (synthetic unit tests)
 ```
 
 ## Status
@@ -57,7 +58,7 @@ tests/                   testAssociateViews, testTriangulateGroups (synthetic un
 | Extrinsic calibration | Code run once at N=2; NOT validated (scale + BUG-5 pending) |
 | Cross-camera association | Epipolar matching implemented + unit-tested; not yet wired into main |
 | Multi-view triangulation | DLT + reprojection gate implemented + unit-tested; not yet wired into main |
-| 3D Kalman tracking | Designed, not implemented |
+| 3D Kalman tracking | Constant-velocity Kalman + lifecycle implemented + unit-tested; not yet wired into main |
 | Offline replay | Partial (path bug fixed) |
 
 ## Coding conventions for this project

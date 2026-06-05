@@ -21,7 +21,7 @@ Multi-camera bird detection and 3D tracking system for a Bachelor's final projec
 | Extrinsic calibration | ⚠️ Run once at N=2, not yet validated |
 | Cross-camera association | 🟡 Implemented + unit-tested (not yet wired into main) |
 | Multi-view triangulation | 🟡 Implemented + unit-tested (not yet wired into main) |
-| 3D Kalman tracking | ❌ Not yet implemented |
+| 3D Kalman tracking | 🟡 Implemented + unit-tested (not yet wired into main) |
 | Offline replay | ⚠️ Partial |
 
 ## Project Structure
@@ -51,6 +51,9 @@ birdtracker/
 ├── triangulation/
 │   └── triangulateGroups.m
 │
+├── tracking/
+│   └── updateTracks.m
+│
 ├── io/
 │   ├── renderFrame.m
 │   ├── logFrame.m
@@ -67,7 +70,8 @@ birdtracker/
 │
 └── tests/
     ├── testAssociateViews.m
-    └── testTriangulateGroups.m
+    ├── testTriangulateGroups.m
+    └── testUpdateTracks.m
 ```
 
 ## Requirements

@@ -60,6 +60,14 @@ cfg.kalmanProcNoise = 1.0;   % increase for erratic species (swallows); decrease
 % Kalman measurement noise: expected triangulation uncertainty (m^2).
 cfg.kalmanMeasNoise = 2.0;   % ~1.5m sigma at 100m with 8m baseline; tune after validation
 
+% Track association gate: max distance (m) from a predicted track to a new point
+% to accept the match. Tune to expected per-frame motion + triangulation error.
+cfg.trackGate = 5.0;
+
+% Initial velocity variance for a new track (m/s)^2 — large, since velocity is
+% unknown at birth.
+cfg.kalmanInitVelVar = 625;   % (25 m/s)^2, covers the fastest expected birds
+
 % --- File paths ---
 cfg.display     = true;                               % set false to skip live display (~5ms/frame saved)
 cfg.logDir      = 'output/';
