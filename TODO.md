@@ -56,12 +56,15 @@ those to target the biggest stage first. The culprits are the deferred PERF item
 
 Measure with the timers, fix highest-cost first, re-measure.
 
-**Progress (2026-06-05):** in-place `renderFrame` (build graphics once, update
-CData/markers) took render 116 -> ~16 ms; median subsample (`cfg.bgMedianStride`)
-took detect 155 -> ~88 ms. Loop **~9.4 fps** (was ~3.6) with GMM on — VALIDATED.
-PERF-1 (single rgb2gray, threaded updateRingBuf -> detectBlobs -> preprocessFrame)
-+ int16 median diff committed, ~11 fps expected — but NOT yet run on hardware
-(ran out of daylight). **Validate next daylight before merging perf/loop -> main.**
+**Progress (2026-06-05, merged into main):** in-place `renderFrame` (build graphics
+once, update CData/markers) took render 116 -> ~16 ms — **the real win**. Median
+subsample (`cfg.bgMedianStride`) helped detect somewhat. PERF-1 (single rgb2gray,
+threaded through) + int16 median diff turned out to be a **WASH** when finally run:
+detect stayed ~90 ms cool, dominated by GMM/median/morphology — rgb2gray is too
+cheap to matter and int16 may even be slightly negative (MATLAB optimises double).
+Net: **~9 fps cool with GMM on** (was ~3.6); thermal/power throttling erodes it
+during a run (all stages slow together). perf/loop is merged. Real remaining
+detect levers: the GMM toggle (deferred) or downsampling — not micro-opts.
 
 **Morphology — TEST whether it costs detections (not just perf):**
 Now toggled by `cfg.useMorphology`, radius in `cfg.morphKernelRadius`, strel

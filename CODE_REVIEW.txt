@@ -62,9 +62,13 @@ UPDATE LOG  (changes since this review — newest first)
        * cfg.useGMM toggle added. Median-only ~13 fps but noisy (26-39 blobs on
          clouds/foliage); kept GMM-on default, deferred the call until the
          association/tracking filtering layer exists to reject those.
-     Result: ~3.6 -> ~9.4 fps VALIDATED (GMM on); ~11 fps STAGED (PERF-1 + int16
-     committed but not yet run on hardware — pending daylight). Remaining:
-     trim morphology. Tracked in TODO.md.
+     Result: ~3.6 -> ~9 fps cool (GMM on). The renderFrame rewrite is the real
+     win; PERF-1 + int16 were a WASH when run (detect stayed ~90 ms, GMM/median/
+     morphology-bound; rgb2gray too cheap to matter, int16 maybe slightly
+     negative). Thermal/power throttling erodes fps during a run (all stages slow
+     together). perf/loop now MERGED into main. Morphology is now a cfg toggle
+     (cfg.useMorphology); its false-negative test is pending daylight. Remaining
+     detect levers: GMM toggle or downsampling. Tracked in TODO.md.
    - [HARDWARE] Two 1080p USB webcams cannot stream simultaneously on the
      available USB controllers (isochronous bandwidth reservation) -> operating
      resolution dropped to 720p; intrinsics recalibrated at 720p. Dual 1080p
