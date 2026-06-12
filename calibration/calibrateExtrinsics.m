@@ -81,6 +81,7 @@ cams = cell(1, N);
 for i = 1:N
     cams{i} = webcam(cfg.camIndices(i));   % logical camera i -> physical webcamlist index
     cams{i}.Resolution = sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2));
+    applyCameraSettings(cams{i}, cfg);     % manual focus + locked exposure/WB
 end
 
 fprintf('Press any key to capture from all cameras simultaneously.\n');

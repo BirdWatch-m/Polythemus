@@ -41,18 +41,7 @@ for i = 1:N
     % snapshot timeouts. Logical camera i -> physical webcamlist index.
     cam = webcam(cfg.camIndices(i));
     cam.Resolution = sprintf('%dx%d', W, H);
-
-    % Warm-up: let the camera start streaming before the real grab, otherwise
-    % the first snapshot can time out (same reason testSingleCamera warms up).
-    warnState = warning('off', 'all');
-    tWarm = tic();
-    while toc(tWarm) < 2.0
-        try
-            snapshot(cam);
-        catch
-        end
-    end
-    warning(warnState);
+    applyCameraSettings(cam, cfg);   % focus/structural locks + auto-settle (warmup)
 
     frame = snapshot(cam);
     cam   = [];   % release immediately — we only needed one frame

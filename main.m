@@ -29,17 +29,8 @@ cams = cell(1, N);
 for i = 1:N
     cams{i} = webcam(cfg.camIndices(i));
     cams{i}.Resolution = sprintf('%dx%d', W, H);
+    applyCameraSettings(cams{i}, cfg);   % manual focus + locked exposure/WB; also warms the camera up
 end
-
-% Warm up each camera — the first frames after opening can time out / be noisy.
-warnState = warning('off', 'all');
-for i = 1:N
-    tWarm = tic;
-    while toc(tWarm) < 2.0
-        try, snapshot(cams{i}); catch, end
-    end
-end
-warning(warnState);
 
 % -------------------------------------------------------------------------
 % Build per-camera detection state manually (no initSystem, so no extrinsic

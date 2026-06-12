@@ -44,45 +44,16 @@ STABILITY_THR = 0.5;       % max px drift between frames to count as stable
 cam = webcam(camIdx);
 cam.Resolution = sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2));
 
-% Camera parameters. WARNING: Different camera models return different
-% parameters of the webcam() object. Adjust accordingly for script to run!
+% Single-sourced focus + structural locks + auto-settled WB (model auto-detected
+% by cam.Name from cfg.camProfiles). Calibration runs on the SAME focus value the
+% operation uses, so intrinsics match what cameras actually do later.
+applyCameraSettings(cam, cfg);
 
-%MY8077
-cam.FocusMode = 'manual';
-cam.Focus = 0;
-cam.Gain = 0;
-cam.BacklightCompensation = 0;
-cam.Sharpness = 0;
-cam.Gamma = 300;
-cam.Brightness = 0;
-cam.Zoom = 0;
-cam.Pan = 0;
-cam.Tilt = 0;
-cam.Roll = 3;   
-
-%C922 Pro Stream
-% cam.FocusMode = 'manual';
-% cam.Focus = 0;                 % 0 = focus at infinity
-% cam.Gain = 0;
-% cam.BacklightCompensation = 0;
-% cam.Sharpness = 0;
-% cam.Brightness = 128;          % C922 range 0-255; 128 = neutral (NOT 0)
-% cam.Contrast = 128;
-% cam.Saturation = 128;
-% cam.Zoom = 100;                % C922 range 100-500; 100 = no zoom (NOT 0)
-% cam.Pan = 0;
-% cam.Tilt = 0;
-
-% Find auto WhiteBalance, then lock
-cam.WhiteBalanceMode = 'auto';
-pause(3);
-cam.WhiteBalanceMode = 'manual';
-
-%Manually set Exposure
-cam.ExposureMode = 'manual';
-cam.Exposure     = -1;  %fiddle with this
-
-pause(1); 
+% Indoor calibration needs a manual exposure value — the auto-settled value from
+% applyCameraSettings is overridden here. ExposureMode is already 'manual', so we
+% just write the value. Fiddle with this if the live histogram looks off.
+cam.Exposure = -1;
+pause(1);
 
 % --- Exposure preview: live image + histogram. Press any key to start capturing. ---
 previewFig = figure('Name', 'Exposure preview — press any key to START, Ctrl-C to abort', ...

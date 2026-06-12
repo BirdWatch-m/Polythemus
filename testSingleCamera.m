@@ -40,19 +40,9 @@ fprintf('Initialising...\n');
  
 cam = webcam(camIdx);
 cam.Resolution = sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2));
-
-% Warm-up: allow camera auto-exposure to stabilise before benchmarking.
-fprintf('Camera warming up (3s)...\n');
-warnState = warning('off', 'all');   % suppress timeout warnings during warmup
-tWarm = tic();
-while toc(tWarm) < 3.0
-    try
-        snapshot(cam);
-    catch
-    end
-end
-warning(warnState);
-fprintf('Warmup done.\n');
+fprintf('Configuring camera (focus/exposure/WB)...\n');
+applyCameraSettings(cam, cfg);   % manual focus + auto-settle/lock exposure & WB (also warms up)
+fprintf('Camera ready.\n');
  
 H = cfg.resolution(2);
 W = cfg.resolution(1);

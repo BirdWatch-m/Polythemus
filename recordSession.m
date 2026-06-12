@@ -26,18 +26,15 @@ N = cfg.N;
 W = cfg.resolution(1);
 H = cfg.resolution(2);
 
-% --- Open cameras (logical i -> physical webcamlist index) + warmup ---
+% --- Open cameras (logical i -> physical webcamlist index) ---
+% applyCameraSettings handles manual focus + structural locks + auto-settle of
+% exposure/WB before locking them (the settle also warms the camera up).
 cams = cell(1, N);
 for i = 1:N
     cams{i} = webcam(cfg.camIndices(i));
     cams{i}.Resolution = sprintf('%dx%d', W, H);
+    applyCameraSettings(cams{i}, cfg);
 end
-warnState = warning('off', 'all');
-for i = 1:N
-    tWarm = tic;
-    while toc(tWarm) < 2.0, try, snapshot(cams{i}); catch, end, end
-end
-warning(warnState);
 
 % Capture camera settings for reproducibility.
 camSettings = cell(1, N);

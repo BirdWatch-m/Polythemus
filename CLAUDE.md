@@ -35,7 +35,7 @@ processRecording.m       Run the pipeline on a recording, offline (detect or ful
 testSingleCamera.m       Smoke test — runs full single-camera pipeline with diagnostics
 replaySession.m          Generate annotated video offline from raw frames + log
 
-acquisition/             acquireFrames, updateRingBuf, syncCheck
+acquisition/             acquireFrames, updateRingBuf, syncCheck, applyCameraSettings
 detection/               detectBlobs, preprocessFrame, applyBackground, gateBlobs
 association/             associateViews (cross-camera epipolar matching)
 triangulation/           triangulateGroups (DLT multi-view triangulation + reprojection gate)

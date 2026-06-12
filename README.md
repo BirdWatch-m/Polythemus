@@ -40,7 +40,8 @@ birdtracker/
 ├── acquisition/
 │   ├── acquireFrames.m
 │   ├── updateRingBuf.m
-│   └── syncCheck.m
+│   ├── syncCheck.m
+│   └── applyCameraSettings.m
 │
 ├── detection/
 │   ├── detectBlobs.m

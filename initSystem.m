@@ -65,6 +65,7 @@ state.cams = cell(1, N);
 for i = 1:N
     state.cams{i} = webcam(cfg.camIndices(i));
     state.cams{i}.Resolution = sprintf('%dx%d', W, H);
+    applyCameraSettings(state.cams{i}, cfg);   % manual focus + locked exposure/WB
 end
 
 % Warn if camera silently rounded to a different resolution.

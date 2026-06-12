@@ -11,6 +11,13 @@ modules grow.
 
 - **World frame = camera 1.** All 3D geometry is in camera 1's frame
   (`R{1}=I`, `t{1}=0`), set by `calibrateExtrinsics`.
+- **Manual focus everywhere** — every camera-open site calls `applyCameraSettings`,
+  which locks focus to `cfg.cameraFocus` (the SAME value `calibrateIntrinsics`
+  uses). Autofocus would change the effective focal length and silently
+  invalidate the intrinsic calibration. Exposure and white balance are
+  auto-converged to the current scene then locked to manual (drift would break
+  background subtraction). Per-model structural settings come from
+  `cfg.camProfiles`, keyed by `cam.Name`.
 - **Pose convention: world-to-camera** — `X_cam = R·X_world + t`, so projection
   is `P = K·[R|t]` and `F{i,j} = K_j^-T [t_rel]_x R_rel K_i^-1`.
   **UNVERIFIED (BUG-5).** If validation shows `R,t` are camera-to-world, flip to

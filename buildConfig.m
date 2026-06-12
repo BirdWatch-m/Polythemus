@@ -24,6 +24,17 @@ cfg.camIndices = [2 3];
 cfg.resolution = [1280, 720]; % [width height] px;
 cfg.fps        = 30;           % frames per second; try 60 if cameras support it at cfg.resolution
 
+% --- Camera capture settings (applied by applyCameraSettings at every open) ---
+% Focus is MANUAL and shared with calibration so operation matches the intrinsics
+% (focus changes the effective focal length). Exposure/WB are auto-settled to the
+% scene, then locked. Structural locks are per camera model, keyed by cam.Name.
+cfg.cameraFocus       = 0;    % manual focus (0 = infinity); MUST match calibrateIntrinsics
+cfg.autoSettleSeconds = 3;    % let auto-exposure/WB converge before locking them
+cfg.camProfiles.MY8077 = struct('Gain',0, 'BacklightCompensation',0, 'Sharpness',0, ...
+    'Gamma',300, 'Brightness',0, 'Contrast',64, 'Zoom',0, 'Pan',0, 'Tilt',0, 'Roll',3);
+cfg.camProfiles.C922   = struct('Gain',0, 'BacklightCompensation',0, 'Sharpness',0, ...
+    'Brightness',128, 'Contrast',128, 'Saturation',128, 'Zoom',100, 'Pan',0, 'Tilt',0);
+
 % --- Ring buffer ---
 % Rolling per-camera frame store. New frames overwrite the oldest.
 cfg.ringBufLen   = 90;   % total frames stored (~3s at 30fps)
