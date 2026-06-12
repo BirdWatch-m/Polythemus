@@ -10,9 +10,6 @@
 %
 %   Output: results.mat in the recording folder (per-frame counts; final tracks).
 %
-%   NOTE: uses main's color-frame detection interface. When perf/loop merges
-%   (gray-frame interface), update the updateRingBuf/detectBlobs calls here too.
-%
 %   See also: recordSession, detectBlobs, associateViews, triangulateGroups, updateTracks
 
 clc; close all; clear;
@@ -86,9 +83,9 @@ for k = 1:nFrames
         frames{i} = imread(fullfile(recordingDir, sprintf('cam%d', i), sprintf('frame_%06d.jpg', k)));
     end
 
-    % Detection (main color-frame interface).
-    [state.ringBuf, state.ringIdx] = updateRingBuf(state.ringBuf, state.ringIdx, frames, cfg);
-    [blobs, state] = detectBlobs(frames, state, cfg);
+    % Detection (gray-frame interface — updateRingBuf converts once and returns it).
+    [state.ringBuf, state.ringIdx, grayFrames] = updateRingBuf(state.ringBuf, state.ringIdx, frames, cfg);
+    [blobs, state] = detectBlobs(grayFrames, state, cfg);
     results.nBlobs(:, k) = cellfun(@numel, blobs).';
 
     if doFull
