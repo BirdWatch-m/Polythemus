@@ -3,16 +3,20 @@ function renderFrame(frames, blobs, cfg)
 %
 %   renderFrame(frames, blobs, cfg)
 %
-%   Shows all N camera feeds side by side. Detected blobs are marked
-%   with green circles and their pixel area printed alongside.
-%   No-op if cfg.display is false.
+%   Shows all N camera feeds side by side; detected blobs are marked with
+%   green circles. No-op if cfg.display is false.
 %
-%   This function has no return values and no effect on system state.
+%   For speed, the image and marker graphics are created ONCE and then updated
+%   in place (CData / XData / YData) on later calls. Rebuilding the subplots and
+%   rasterising overlays into the frame every iteration (the old approach) cost
+%   ~100ms/frame even with no blobs; updating in place is ~an order cheaper.
 %
 %   INPUTS
 %     frames — {1xN} cell of H x W x 3 uint8 colour frames
 %     blobs  — {1xN} cell of blob struct arrays from detectBlobs
 %     cfg    — struct from buildConfig()
+%
+%   This function has no return values and no effect on system state.
 %
 %   See also: detectBlobs, logFrame
 
@@ -22,31 +26,46 @@ end
 
 N = cfg.N;
 
-% Create or reuse figure.
-fig = findobj('Type', 'figure', 'Name', 'BirdTracker — live');
-if isempty(fig)
-    fig = figure('Name', 'BirdTracker — live', 'NumberTitle', 'off', ...
-             'MenuBar', 'none', 'ToolBar', 'none');
+% Find (or create) the live figure. main.m / testSingleCamera create it with the
+% Q-key handler; reuse it so that handler stays attached.
+figH = findobj('Type', 'figure', 'Name', 'BirdTracker — live');
+if isempty(figH)
+    figH = figure('Name', 'BirdTracker — live', 'NumberTitle', 'off', ...
+                  'MenuBar', 'none', 'ToolBar', 'none');
+else
+    figH = figH(1);
 end
 
+hImg  = getappdata(figH, 'hImg');
+hMark = getappdata(figH, 'hMark');
+
+% First call (or stale handles): build axes, image, and marker objects once.
+if isempty(hImg) || numel(hImg) ~= N || ~all(isgraphics(hImg))
+    hImg  = gobjects(1, N);
+    hMark = gobjects(1, N);
+    for i = 1:N
+        ax = subplot(1, N, i, 'Parent', figH);
+        hImg(i)  = imshow(frames{i}, 'Parent', ax);
+        hold(ax, 'on');
+        hMark(i) = plot(ax, NaN, NaN, 'go', 'MarkerSize', 8, 'LineWidth', 1.5);
+        title(ax, sprintf('Cam %d', i));
+    end
+    setappdata(figH, 'hImg',  hImg);
+    setappdata(figH, 'hMark', hMark);
+end
+
+% Update image data and blob markers in place.
 for i = 1:N
-    subplot(1, N, i);
+    set(hImg(i), 'CData', frames{i});
 
-    display = frames{i};
-
-    % Draw a green circle at each detected blob centroid.
-    for k = 1:numel(blobs{i})
-        c       = blobs{i}(k).centroid;
-        display = insertShape(display, 'Circle', [c(1) c(2) 6], ...
-                              'Color', 'green', 'LineWidth', 2);
-        display = insertText(display, [c(1)+8 c(2)], ...
-                             sprintf('%.0fpx²', blobs{i}(k).area), ...
-                             'FontSize', 10, 'BoxOpacity', 0);
+    if isempty(blobs{i})
+        set(hMark(i), 'XData', NaN, 'YData', NaN);
+    else
+        C = vertcat(blobs{i}.centroid);            % nBlobs x 2
+        set(hMark(i), 'XData', C(:,1), 'YData', C(:,2));
     end
 
-    image(display);
-    axis off;
-    title(sprintf('Cam %d | blobs: %d', i, numel(blobs{i})));
+    title(ancestor(hImg(i), 'axes'), sprintf('Cam %d | blobs: %d', i, numel(blobs{i})));
 end
 
 drawnow limitrate;

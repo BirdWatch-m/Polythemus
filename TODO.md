@@ -55,3 +55,24 @@ those to target the biggest stage first. The culprits are the deferred PERF item
 - **PERF-5 (sequential snapshots):** lower priority — sync is already ~3 ms at 720p.
 
 Measure with the timers, fix highest-cost first, re-measure.
+
+**Progress (2026-06-05):** in-place `renderFrame` (build graphics once, update
+CData/markers) took render 116 -> ~16 ms; median subsample (`cfg.bgMedianStride`)
+took detect 155 -> ~88 ms. Loop **~9.4 fps** (was ~3.6) with GMM on — VALIDATED.
+PERF-1 (single rgb2gray, threaded updateRingBuf -> detectBlobs -> preprocessFrame)
++ int16 median diff committed, ~11 fps expected — but NOT yet run on hardware
+(ran out of daylight). **Validate next daylight before merging perf/loop -> main.**
+
+**Morphology — TEST whether it costs detections (not just perf):**
+Now toggled by `cfg.useMorphology`, radius in `cfg.morphKernelRadius`, strel
+precomputed in `cfg.morphStrel` (no per-frame rebuild). The risk: `imopen` with
+disk-2 erodes a 2px border, so it can **erase ~3x3px distant birds that
+`minBlobArea = 9` is meant to keep** — a false-negative source at range. The area
+gate already drops single-pixel noise, so `imopen` may be largely redundant.
+Test next daylight: `useMorphology = false` (cut it) and/or `morphKernelRadius = 1`,
+watch false negatives vs false positives at range.
+
+**Deferred decision — median-only (`cfg.useGMM = false`):** gives ~13 fps but
+many more false positives (26-39 blobs on clouds/foliage). The GMM AND suppresses
+those. Re-evaluate once the association/tracking layer exists to reject them
+downstream — only then can median-only vs GMM be judged fairly.

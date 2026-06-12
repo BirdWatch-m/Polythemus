@@ -1,15 +1,16 @@
-function [blobs, bgMedian, framesSinceUpdate] = preprocessFrame(frame, bgMedian, ringBuf_i, framesSinceUpdate, fgDetector, skyMask, cfg)
+function [blobs, bgMedian, framesSinceUpdate] = preprocessFrame(frameGray, bgMedian, ringBuf_i, framesSinceUpdate, fgDetector, skyMask, cfg)
 % PREPROCESSFRAME  Full detection pipeline for one camera, one frame.
 %
-%   [blobs, bgMedian, framesSinceUpdate] = preprocessFrame(frame, ...
+%   [blobs, bgMedian, framesSinceUpdate] = preprocessFrame(frameGray, ...
 %       bgMedian, ringBuf_i, framesSinceUpdate, fgDetector, skyMask, cfg)
 %
-%   Runs in sequence: grayscale conversion, background subtraction,
-%   sky masking, morphological cleanup, blob extraction and gating.
+%   Runs in sequence: background subtraction, sky masking, morphological
+%   cleanup, blob extraction and gating. The grayscale conversion happens
+%   upstream (updateRingBuf) so it is done once per frame, not twice.
 %
 %   INPUTS
-%     frame             — H x W x 3 uint8 colour frame
-%     bgMedian          — H x W double current median background for this camera
+%     frameGray         — H x W uint8 grayscale current frame
+%     bgMedian          — H x W current median background for this camera
 %     ringBuf_i         — H x W x ringBufLen uint8 ring buffer for this camera
 %     framesSinceUpdate — this camera's median-refresh counter (see applyBackground)
 %     fgDetector        — vision.ForegroundDetector for this camera
@@ -22,8 +23,6 @@ function [blobs, bgMedian, framesSinceUpdate] = preprocessFrame(frame, bgMedian,
 %     framesSinceUpdate — updated median-refresh counter
 %
 %   See also: detectBlobs, applyBackground, gateBlobs
-
-frameGray = rgb2gray(frame);
 
 [mask, bgMedian, framesSinceUpdate] = applyBackground( ...
     frameGray, bgMedian, ringBuf_i, framesSinceUpdate, fgDetector, cfg);

@@ -50,13 +50,21 @@ UPDATE LOG  (changes since this review — newest first)
      confirmed on live sky — both cameras report comparable blob counts).
 
   New issues found this session:
-   - [PERF-NEW] At N=2 / 720p the live loop runs ~3 fps — too slow for birds.
-     Acquisition is cheap (~3ms sync); cost is detect + render, i.e. the
-     deferred PERF cluster: PERF-1 (double rgb2gray), PERF-2 (60-frame median
-     recompute every cfg.bgUpdateInterval frames, both cameras on the same
-     frame -> periodic stall), PERF-3 (per-blob insertShape/insertText in
-     renderFrame). Per-stage timers added to main.m. Needs the PERF pass before
-     real bird capture. Tracked in TODO.md.
+   - [PERF-NEW] At N=2 / 720p the live loop started at ~3 fps. PERF pass on
+     branch perf/loop addressed it (per-stage timers added to main.m first):
+       * PERF-3/PERF-6: renderFrame rebuilt subplots and rasterised overlays
+         into the frame every iteration (~116 ms even with 0 blobs). Now builds
+         the image + marker graphics once and updates CData/XData in place
+         -> ~16 ms.
+       * PERF-2: median subsampled via cfg.bgMedianStride (stride 3).
+       * PERF-1: rgb2gray done once in updateRingBuf and passed to detection
+         (was computed twice). int16 median diff instead of double.
+       * cfg.useGMM toggle added. Median-only ~13 fps but noisy (26-39 blobs on
+         clouds/foliage); kept GMM-on default, deferred the call until the
+         association/tracking filtering layer exists to reject those.
+     Result: ~3.6 -> ~9.4 fps VALIDATED (GMM on); ~11 fps STAGED (PERF-1 + int16
+     committed but not yet run on hardware — pending daylight). Remaining:
+     trim morphology. Tracked in TODO.md.
    - [HARDWARE] Two 1080p USB webcams cannot stream simultaneously on the
      available USB controllers (isochronous bandwidth reservation) -> operating
      resolution dropped to 720p; intrinsics recalibrated at 720p. Dual 1080p

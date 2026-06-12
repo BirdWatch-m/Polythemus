@@ -55,7 +55,7 @@ tests/                   testAssociateViews, testTriangulateGroups, testUpdateTr
 | Background subtraction (median + GMM) | Done; per-camera background fixed (BUG-1) |
 | Blob extraction and gating | Done |
 | Live display, logging, session save | Done |
-| Multi-camera detection loop (main.m) | Runs at N=2 on live sky; ~3 fps, PERF pass pending |
+| Multi-camera detection loop (main.m) | Runs at N=2 on live sky; ~9.4 fps after PERF pass (GMM on) |
 | Intrinsic calibration | Done — MY8077 + C922, at 1080p and 720p |
 | Extrinsic calibration | Code run once at N=2; NOT validated (scale + BUG-5 pending) |
 | Cross-camera association | Epipolar matching implemented + unit-tested; not yet wired into main |
