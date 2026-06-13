@@ -20,9 +20,12 @@ modules grow.
   `cfg.camProfiles`, keyed by `cam.Name`.
 - **Pose convention: world-to-camera** — `X_cam = R·X_world + t`, so projection
   is `P = K·[R|t]` and `F{i,j} = K_j^-T [t_rel]_x R_rel K_i^-1`.
-  **UNVERIFIED (BUG-5).** If validation shows `R,t` are camera-to-world, flip to
-  `P = K·[R'|-R'·t]` (and rebuild `F` accordingly). Affects triangulation
-  *accuracy*, not the association/DLT/Kalman *logic*.
+  **PARTIALLY VERIFIED (BUG-5).** Scale validated indoors (0.1% error at 3.31m);
+  convention produced consistent results. Reprojection error 10.47px indoors —
+  retest outdoors with a sharp target to confirm rotation is correct. If a
+  future test shows `R,t` are camera-to-world, flip to `P = K·[R'|-R'·t]`
+  (and rebuild `F` accordingly). Affects triangulation *accuracy*, not the
+  association/DLT/Kalman *logic*.
 - **Camera model:** pinhole + radial/tangential distortion from the intrinsics
   objects; image points are undistorted before triangulation.
 - **Synchronous frames:** all cameras' detections in a frame are treated as

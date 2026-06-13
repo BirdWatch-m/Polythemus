@@ -60,15 +60,17 @@ if any(cfg.camIndices < 1) || any(cfg.camIndices > numel(available))
           num2str(cfg.camIndices), numel(available), strjoin(available, ', '));
 end
 
-% Map each logical camera to its physical webcamlist index (see cfg.camIndices).
+% Open all cameras and apply structural settings (focus + per-model profile).
+% Settle is deferred to the group phase below so all cameras respond to the
+% same scene brightness simultaneously.
 state.cams = cell(1, N);
 for i = 1:N
     state.cams{i} = webcam(cfg.camIndices(i));
     state.cams{i}.Resolution = sprintf('%dx%d', W, H);
-    applyCameraSettings(state.cams{i}, cfg);   % manual focus + locked exposure/WB
+    applyCameraSettings(state.cams{i}, cfg, 'structural');   % focus + profile + auto mode, no settle yet
 end
 
-% Warn if camera silently rounded to a different resolution.
+% Warn if any camera silently rounded to a different resolution.
 for i = 1:N
     parts = sscanf(state.cams{i}.Resolution, '%dx%d');
     if abs(parts(1) - W) > 4 || abs(parts(2) - H) > 4
@@ -76,6 +78,24 @@ for i = 1:N
                 'Camera %d (webcam %d): requested %dx%d but got %s.', ...
                 i, cfg.camIndices(i), W, H, state.cams{i}.Resolution);
     end
+end
+
+% Group settle: snapshot all cameras together for autoSettleSeconds, then lock
+% all at once. Sequential per-camera settling locks cameras at different times
+% and therefore different exposures; simultaneous settling lets both converge
+% on the same scene brightness before locking.
+fprintf('Settling all cameras simultaneously (%.0fs)...\n', cfg.autoSettleSeconds);
+warnState = warning('off', 'all');
+t0 = tic;
+while toc(t0) < cfg.autoSettleSeconds
+    for i = 1:N
+        try, snapshot(state.cams{i}); catch, end
+    end
+end
+warning(warnState);
+for i = 1:N
+    settled = applyCameraSettings(state.cams{i}, cfg, 'lock');
+    fprintf('  Cam %d locked: Exposure = %g\n', i, settled.Exposure);
 end
 
 fprintf('Opened %d camera(s).\n', N);
@@ -119,31 +139,40 @@ end
 % 4. LOAD SKY MASKS
 % -------------------------------------------------------------------------
 
-if ~isfile(cfg.skyMaskFile)
-    error('initSystem:noSkyMask', ...
-          'Sky mask file not found: %s\nRun drawSkyMasks.m first.', cfg.skyMaskFile);
-end
-
-loaded = load(cfg.skyMaskFile);
-
-if numel(loaded.skyMasks) ~= N
-    error('initSystem:skyMaskCount', ...
-          'Sky mask file has %d mask(s) but cfg.N = %d.', numel(loaded.skyMasks), N);
+skyMaskOk = isfile(cfg.skyMaskFile);
+if skyMaskOk
+    loaded    = load(cfg.skyMaskFile);
+    skyMaskOk = numel(loaded.skyMasks) == N;
+    if ~skyMaskOk
+        warning('initSystem:skyMaskCount', ...
+                'Sky mask file has %d mask(s) but cfg.N = %d — using full-frame placeholder.', ...
+                numel(loaded.skyMasks), N);
+    end
+else
+    warning('initSystem:noSkyMask', ...
+            'Sky mask file not found: %s — using full-frame placeholder.\nRun drawSkyMasks.m before real operation.', ...
+            cfg.skyMaskFile);
 end
 
 state.skyMask = cell(1, N);
-for i = 1:N
-    m = loaded.skyMasks{i};
-    if ~isequal(size(m), [H W])
-        error('initSystem:skyMaskSize', ...
-              ['Sky mask %d is %dx%d but frames are %dx%d.\n' ...
-               'Re-run drawSkyMasks at the current resolution.'], ...
-              i, size(m,1), size(m,2), H, W);
+if skyMaskOk
+    for i = 1:N
+        m = loaded.skyMasks{i};
+        if ~isequal(size(m), [H W])
+            error('initSystem:skyMaskSize', ...
+                  ['Sky mask %d is %dx%d but frames are %dx%d.\n' ...
+                   'Re-run drawSkyMasks at the current resolution.'], ...
+                  i, size(m,1), size(m,2), H, W);
+        end
+        state.skyMask{i} = m;
     end
-    state.skyMask{i} = m;
+    fprintf('Sky masks loaded.\n');
+else
+    for i = 1:N
+        state.skyMask{i} = true(H, W);
+    end
+    fprintf('Sky masks: full-frame placeholder active.\n');
 end
-
-fprintf('Sky masks loaded.\n');
 
 % -------------------------------------------------------------------------
 % 5. LOAD CALIBRATION AND BUILD FUNDAMENTAL MATRICES
@@ -199,6 +228,7 @@ state.nextTrackId = 1;
 state.log.timestamps     = [];   % [1 x nFrames] seconds since tStart
 state.log.syncFlags      = [];   % [1 x nFrames] logical
 state.log.nBlobs         = [];   % [N x nFrames] blob count per camera
+state.log.blobCentroids  = {};   % {nFrames x 1} cell of {1xN} centroid arrays
 state.log.nGroups        = [];   % [1 x nFrames] association groups formed
 state.log.nConfirmed     = [];   % [1 x nFrames] confirmed tracks
 state.log.meanReprErr    = [];   % [1 x nFrames] mean reprojection error (px)

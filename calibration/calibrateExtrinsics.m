@@ -1,7 +1,8 @@
-function multiCamParams = calibrateExtrinsics(cfg, intrinsicFiles)
+function multiCamParams = calibrateExtrinsics(cfg, intrinsicFiles, knownBaseline)
 % CALIBRATEEXTRINSICS  Compute inter-camera geometry from a shared scene.
 %
 %   multiCamParams = calibrateExtrinsics(cfg, intrinsicFiles)
+%   multiCamParams = calibrateExtrinsics(cfg, intrinsicFiles, knownBaseline)
 %
 %   With all cameras mounted in their final positions, this function captures
 %   one simultaneous frame per camera, matches visual features between
@@ -18,6 +19,12 @@ function multiCamParams = calibrateExtrinsics(cfg, intrinsicFiles)
 %                      e.g. {'calibration/intrinsics_cam1.mat',
 %                             'calibration/intrinsics_cam2.mat',
 %                             'calibration/intrinsics_cam3.mat'}
+%     knownBaseline  — (optional) physical distance in metres between the
+%                      optical centres of adjacent cameras, measured with a
+%                      tape measure. Sets the metric scale of the world
+%                      coordinate system. If omitted, translations are
+%                      unit-scale and validateCalibration must be used to
+%                      apply scale separately.
 %
 %   OUTPUT
 %     multiCamParams — struct saved to cfg.calFile, containing:
@@ -42,8 +49,8 @@ function multiCamParams = calibrateExtrinsics(cfg, intrinsicFiles)
 %     - Brighter daylight conditions improve feature matching significantly.
 %
 %   VALIDATION
-%     After saving, run validateCalibration.m to measure triangulation
-%     accuracy against a known physical distance.
+%     After saving, run validateCalibration(cfg) to check reprojection error
+%     against a scene point at a known distance.
 %
 %   See also: calibrateIntrinsics, validateCalibration, initSystem
 
@@ -84,28 +91,29 @@ for i = 1:N
     applyCameraSettings(cams{i}, cfg);     % manual focus + locked exposure/WB
 end
 
-fprintf('Press any key to capture from all cameras simultaneously.\n');
-figure('Name','Extrinsic calibration — preview'); pause;
+% Live preview: stream all cameras simultaneously. Close the window to capture.
+fprintf('Live preview — close the window to capture calibration frames.\n');
+fig  = figure('Name', 'Extrinsic calibration — close to capture', 'NumberTitle', 'off');
+hImg = gobjects(1, N);
+for i = 1:N
+    ax      = subplot(1, N, i);
+    hImg(i) = imshow(snapshot(cams{i}), 'Parent', ax);
+    title(ax, sprintf('Camera %d', i));
+end
 
+while ishandle(fig)
+    for i = 1:N
+        set(hImg(i), 'CData', snapshot(cams{i}));
+    end
+    drawnow limitrate;
+end
+
+% Capture one frame per camera immediately after the window closes.
 frames = cell(1, N);
 for i = 1:N
     frames{i} = snapshot(cams{i});
 end
-
-% Close cameras immediately; we work from the captured frames.
-% Dropping every reference releases the underlying webcam handles.
-% (`clear cams{i}` does NOT work — clear takes literal names, not indices.)
 cams = {};
-
-% Show captured frames side by side for visual confirmation.
-figure('Name', 'Captured frames — verify scene overlap');
-for i = 1:N
-    subplot(1, N, i);
-    imshow(frames{i});
-    title(sprintf('Camera %d', i));
-end
-fprintf('Check frames for scene overlap. Close figure to continue.\n');
-uiwait(gcf);
 
 % -------------------------------------------------------------------------
 % 3. EXTRACT AND MATCH FEATURES FOR EACH CAMERA PAIR
@@ -140,9 +148,14 @@ for i = 2:N
     [R_rel, t_rel] = estimateRelativePose( ...
         frames{ref}, frames{i}, intrinsics{ref}, intrinsics{i});
 
+    % Apply metric scale if the physical baseline was provided.
+    % norm(t_rel) = 1 from relativeCameraPose (unit-scale); rescale so the
+    % magnitude equals the measured distance between optical centres.
+    if nargin >= 3 && ~isempty(knownBaseline)
+        t_rel = t_rel * (knownBaseline / norm(t_rel));
+    end
+
     % Compose with reference camera's pose to get pose in world frame.
-    % If ref = 1, R_rel and t_rel are already world-frame.
-    % If ref > 1, we compose: world <- ref <- i.
     R{i} = R_rel * R{ref};
     t{i} = R_rel * t{ref} + t_rel;
 

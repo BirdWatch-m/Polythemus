@@ -8,9 +8,10 @@ function results = validateCalibration(cfg)
 %   triangulates it and reports the estimated distance. Compare against
 %   a distance measured physically.
 %
-%   Run this after calibrateExtrinsics. If errors exceed 10% of the target
-%   distance, repeat extrinsic calibration with more feature matches or
-%   better lighting conditions.
+%   Read-only check — does not modify the calibration file. Scale must be
+%   set via the knownBaseline argument to calibrateExtrinsics.
+%   If reprojection errors exceed 5px, repeat extrinsic calibration with
+%   more feature matches or better lighting conditions.
 %
 %   INPUT
 %     cfg     — struct from buildConfig()
@@ -88,40 +89,29 @@ end
 % 3. TRIANGULATE
 % -------------------------------------------------------------------------
 
-% Build cameraPose objects required by triangulateMultiview.
-cameraPoses = table();
-for i = 1:N
-    tform = rigidtform3d(cal.R{i}, cal.t{i}');
-    cameraPoses = [cameraPoses; {i, tform}];
-end
-cameraPoses.Properties.VariableNames = {'ViewId','AbsolutePose'};
+% Build a synthetic single group and triangulate via the same DLT the live
+% pipeline uses. triangulateGroups handles undistortion internally.
+group.camIds = 1:N;
+group.points = clickedPixels;
 
-% Build pointTrack: one track containing each camera's clicked pixel.
-track = pointTrack(1:N, clickedPixels);
+pt = triangulateGroups(group, cal, cfg);
 
-% Undistort clicked points using intrinsics before triangulation.
-undistPts = zeros(N, 2);
-for i = 1:N
-    undistPts(i,:) = undistortPoints(clickedPixels(i,:), cal.intrinsics{i});
-end
-
-% triangulateMultiview expects a pointTrack and cameraPoses table.
-[point3D, reprErrors] = triangulateMultiview(pointTrack(1:N, undistPts), ...
-                                              cameraPoses, cal.intrinsics);
+point3D    = pt.position;
+reprErrors = pt.reprojErr;
 
 % -------------------------------------------------------------------------
-% 4. REPORT
+% 4. REPORT + SCALE FIX
 % -------------------------------------------------------------------------
 
-distFromCam1 = norm(point3D - cal.t{1}');
+distFromCam1 = norm(point3D);   % cam1 is world origin so t{1} = 0
 
 fprintf('\n--- Validation results ---\n');
 fprintf('Triangulated position: [%.3f  %.3f  %.3f] m\n', point3D);
 fprintf('Estimated distance from camera 1: %.3f m\n', distFromCam1);
 fprintf('Reprojection errors per camera: ');
 fprintf('%.2fpx  ', reprErrors); fprintf('\n');
-fprintf('\nMeasure this distance physically and compare.\n');
-fprintf('Acceptable error: <10%% of the measured distance.\n');
+fprintf('\nCompare distance against a physical measurement.\n');
+fprintf('Reprojection errors <3px are good; >5px suggests a rotation issue.\n');
 
 results.point3D       = point3D;
 results.distFromCam1  = distFromCam1;

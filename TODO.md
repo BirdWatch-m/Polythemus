@@ -4,6 +4,16 @@ Tracked follow-ups that are out of scope for current work but worth doing.
 
 ---
 
+## Review gain behaviour after auto-settle  *(low priority)*
+
+Gain was removed from `cfg.camProfiles` (it was pinning both cameras to 0,
+suppressing auto-exposure in low light). Now gain floats during the group
+settle and locks at whatever the algorithm converges to. Worth verifying
+outdoors that the locked gain values are reasonable and not introducing
+noise — log them at startup and compare across sessions.
+
+---
+
 ## Auto-tune camera parameters for outdoor capture  *(deferred — post first outdoor shoot)*
 
 **Goal:** a helper, e.g. `autoTuneCamera(cam, skyMask, target)`, that sets

@@ -29,7 +29,7 @@ Frame acquisition (timestamp-aligned, ring-buffered)
 ```
 buildConfig.m            All system parameters (single source of truth)
 initSystem.m             System init for the multi-camera entry point
-main.m                   Multi-camera detection driver / smoke test (N cameras)
+main.m                   Live pipeline driver — detection, association, triangulation, tracking
 recordSession.m          Capture synchronized frames from all cameras to disk
 processRecording.m       Run the pipeline on a recording, offline (detect or full)
 testSingleCamera.m       Smoke test — runs full single-camera pipeline with diagnostics
@@ -55,12 +55,12 @@ tests/                   testAssociateViews, testTriangulateGroups, testUpdateTr
 | Background subtraction (median + GMM) | Done; per-camera background fixed (BUG-1) |
 | Blob extraction and gating | Done |
 | Live display, logging, session save | Done |
-| Multi-camera detection loop (main.m) | Runs at N=2; ~9 fps (render solved; detect GMM-bound, thermal-limited) |
+| Live pipeline (main.m) | Full pipeline wired (detect → associate → triangulate → track); ~9 fps detect-limited; saves session log on exit |
 | Intrinsic calibration | Done — MY8077 + C922, at 1080p and 720p |
-| Extrinsic calibration | Code run once at N=2; NOT validated (scale + BUG-5 pending) |
-| Cross-camera association | Epipolar matching implemented + unit-tested; not yet wired into main |
-| Multi-view triangulation | DLT + reprojection gate implemented + unit-tested; not yet wired into main |
-| 3D Kalman tracking | Constant-velocity Kalman + lifecycle implemented + unit-tested; not yet wired into main |
+| Extrinsic calibration | Scale validated indoors (0.1% error at 3.31m); reprojection 10.47px — retest outdoors with sharp target to check rotation |
+| Cross-camera association | Epipolar matching implemented + unit-tested; wired into main |
+| Multi-view triangulation | DLT + reprojection gate implemented + unit-tested; wired into main |
+| 3D Kalman tracking | Constant-velocity Kalman + lifecycle implemented + unit-tested; wired into main |
 | Offline replay | Partial (path bug fixed) |
 | Recording + offline driver | recordSession (capture) + processRecording (offline detect/full); untested on hardware |
 

@@ -17,6 +17,55 @@ Legend:   [BUG]  correctness defect, will misbehave when run
 UPDATE LOG  (changes since this review — newest first)
 ================================================================
 
+2026-06-13 — calibration + camera settings improvements:
+
+  calibrateExtrinsics: replaced press-any-key + static snapshot review with a
+  live multi-camera preview; close the window to capture. Added optional
+  knownBaseline parameter — scales t_rel to metric immediately so the saved
+  calFile is already in metres. validateCalibration refactored to read-only:
+  reports triangulated distance and reprojection error, no longer modifies or
+  re-saves the calibration file. Fixed two bugs in validateCalibration:
+  ViewId must be uint32 for triangulateMultiview; replaced triangulateMultiview
+  (incompatible with cameraParameters cell array) with triangulateGroups so
+  validation uses the exact same DLT code path as the live pipeline.
+
+  applyCameraSettings refactored: boolean doSettle flag replaced with a
+  string mode ('full' | 'structural' | 'lock'). initSystem now opens all
+  cameras with 'structural' (focus + profile + auto mode, no settle), runs
+  a simultaneous group settle loop (all cameras snapshotting together), then
+  locks all cameras with 'lock'. Sequential per-camera settling was causing
+  asymmetric exposure lock between cameras. Locked exposure values printed
+  to console per camera on startup.
+
+  Gain removed from cfg.camProfiles for both cameras — it was pinned at 0,
+  preventing auto-exposure from reaching its natural ceiling in low light.
+  Gain now floats during the settle and locks at whatever the algorithm
+  converges to, consistent with the design intent (only exposure/gain are
+  auto-tuned, structural settings are locked).
+
+  initSystem sky mask loading: errors for missing file or wrong camera count
+  replaced with warnings + full-frame placeholder fallback, so the pipeline
+  can run before drawSkyMasks has been re-run.
+
+  main.m: added addpath(genpath(...)) so association/triangulation/tracking
+  subdirectories are on the path regardless of MATLAB's working directory.
+
+2026-06-13 — full pipeline wired into main.m:
+
+  main.m upgraded from detection-only smoke test to the full live pipeline.
+  Now calls: associateViews -> triangulateGroups -> updateTracks each frame,
+  with dt computed from actual inter-frame timestamps (nominal 1/fps for the
+  first frame). Uses initSystem() for all initialization (calibration load,
+  sky masks, tracking state, session log) instead of building state inline.
+  Saves a session log via saveSession() on exit. Console report extended with
+  group count, confirmed track count, and a per-stage 3D timer.
+
+  [BUG-NEW] initSystem allocated no log.blobCentroids field, but logFrame
+  appends to it — would error on the first logFrame call. Fixed: added
+  state.log.blobCentroids = {} to initSystem's log initialisation block.
+
+  Remaining gate to meaningful 3D output: BUG-5 (extrinsic validation).
+
 2026-06-05 — critical bugs fixed + multi-camera prep (branch fix/critical-bugs):
 
   [BUG-1] RESOLVED. Per-camera median counter now lives in
@@ -29,10 +78,14 @@ UPDATE LOG  (changes since this review — newest first)
   [BUG-4] RESOLVED. calibrateIntrinsics is a script; tic/toc instead of
           datetime; save() moved BEFORE the holdout block (a good result is no
           longer lost if the holdout throws); pwd-independent saveFile.
-  [BUG-5] PENDING. Extrinsics has now RUN once (plausible unit-scale pose,
-          ~22deg off pure-lateral on a far-field scene), but is NOT validated.
-          Needs validateCalibration + scale-fixing (measured baseline) + the
-          night telemeter measurement. This is the milestone gate.
+  [BUG-5] PARTIAL. Scale validated indoors (2026-06-13): calibrateExtrinsics
+          now accepts an optional knownBaseline (metres) and scales t_rel
+          immediately so calFile is metric from the start. Indoor test with
+          scale factor 8.66x: post-scale distance error 0.1% at 3.31m.
+          Reprojection error 10.47px — likely clicking imprecision on an
+          out-of-focus indoor target; retest outdoors with a sharp target
+          before trusting rotation. Pose convention unconfirmed but consistent
+          with correct results. validateCalibration is now a read-only check.
   [CONV-2] PARTIAL. applyBackground magic numbers moved to cfg; others remain.
 
   Work beyond the original review:

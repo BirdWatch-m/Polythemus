@@ -1,7 +1,8 @@
-function settled = applyCameraSettings(cam, cfg)
+function settled = applyCameraSettings(cam, cfg, mode)
 % APPLYCAMERASETTINGS  Lock focus + structural settings, settle then lock auto modes.
 %
 %   settled = applyCameraSettings(cam, cfg)
+%   settled = applyCameraSettings(cam, cfg, mode)
 %
 %   Configures an already-opened webcam for capture. MUST be called at every
 %   camera-open site — otherwise the camera runs on autofocus/auto-exposure,
@@ -9,56 +10,69 @@ function settled = applyCameraSettings(cam, cfg)
 %   intrinsic calibration, and (b) drifts frame-to-frame, breaking background
 %   subtraction.
 %
-%   What it does:
-%     1. Manual focus at cfg.cameraFocus — the SAME value calibrateIntrinsics
-%        uses, so operation focus == calibration focus (single-sourced in cfg).
-%     2. Per-model structural locks (gain, sharpness, gamma, etc.) from
-%        cfg.camProfiles, selected by a substring match on cam.Name.
-%     3. Lets auto-exposure and auto-white-balance converge to the current scene
-%        (snapshotting during the settle, which also warms the camera up), then
-%        switches both to manual so they HOLD at the converged values.
+%   MODE values:
+%     'full'       (default) — structural + settle + lock. Used by single-camera
+%                  callers (calibrateExtrinsics, drawSkyMasks, testSingleCamera).
+%     'structural' — structural settings + set auto mode, no settle, no lock.
+%                  Used by initSystem before the group settle loop.
+%     'lock'       — lock current auto values only (no structural, no settle).
+%                  Used by initSystem after the group settle loop.
 %
 %   A future exposure/gain optimisation (autoTune — low priority, see TODO.md)
 %   belongs right here, refining the locked exposure by metering over the sky ROI.
 %
 %   INPUTS
-%     cam — an opened webcam object (Resolution already set)
-%     cfg — buildConfig (uses cameraFocus, autoSettleSeconds, camProfiles)
+%     cam  — an opened webcam object (Resolution already set)
+%     cfg  — buildConfig (uses cameraFocus, autoSettleSeconds, camProfiles)
+%     mode — string, default 'full' (see above)
 %
 %   OUTPUT
-%     settled — struct of the locked values (Exposure, WhiteBalance, Focus), for
-%               logging / reproducibility
+%     settled — struct of the current values (Exposure, WhiteBalance, Focus).
+%               In 'structural' mode these reflect the auto state and are not
+%               yet stable.
 %
 %   See also: buildConfig, initSystem, acquireFrames, calibrateIntrinsics
 
-% --- 1. Manual focus (must match calibration) ---
-cam.FocusMode = 'manual';
-trySet(cam, 'Focus', cfg.cameraFocus);
-
-% --- 2. Per-model structural locks (skip any property the camera lacks) ---
-prof = profileFor(cam.Name, cfg);
-fn   = fieldnames(prof);
-for k = 1:numel(fn)
-    trySet(cam, fn{k}, prof.(fn{k}));
+if nargin < 3
+    mode = 'full';
 end
 
-% --- 3. Auto-converge exposure + WB to the scene, then lock them ---
-% Auto algorithms advance as frames stream, so snapshot during the settle
-% (this also serves as the camera warmup). Switching to manual holds the value.
-cam.ExposureMode     = 'auto';
-cam.WhiteBalanceMode = 'auto';
-warnState = warning('off', 'all');
-t0 = tic;
-while toc(t0) < cfg.autoSettleSeconds
-    try, snapshot(cam); catch, end
-end
-warning(warnState);
-cam.ExposureMode     = 'manual';   % holds at the converged exposure
-cam.WhiteBalanceMode = 'manual';   % holds at the converged white balance
+if ~strcmp(mode, 'lock')
+    % --- 1. Manual focus (must match calibration) ---
+    cam.FocusMode = 'manual';
+    trySet(cam, 'Focus', cfg.cameraFocus);
 
-settled = struct('Exposure', tryGet(cam, 'Exposure'), ...
+    % --- 2. Per-model structural locks (skip any property the camera lacks) ---
+    prof = profileFor(cam.Name, cfg);
+    fn   = fieldnames(prof);
+    for k = 1:numel(fn)
+        trySet(cam, fn{k}, prof.(fn{k}));
+    end
+
+    % --- 3. Set auto modes ---
+    cam.ExposureMode     = 'auto';
+    cam.WhiteBalanceMode = 'auto';
+end
+
+if strcmp(mode, 'full')
+    % Snapshot during settle so auto algorithms advance (also warms up the
+    % camera). Switching to manual afterwards holds the converged values.
+    warnState = warning('off', 'all');
+    t0 = tic;
+    while toc(t0) < cfg.autoSettleSeconds
+        try, snapshot(cam); catch, end
+    end
+    warning(warnState);
+end
+
+% if strcmp(mode, 'full') || strcmp(mode, 'lock')
+%     cam.ExposureMode     = 'manual';   % holds at the converged exposure
+%     cam.WhiteBalanceMode = 'manual';   % holds at the converged white balance
+% end
+
+settled = struct('Exposure',     tryGet(cam, 'Exposure'), ...
                  'WhiteBalance', tryGet(cam, 'WhiteBalance'), ...
-                 'Focus', tryGet(cam, 'Focus'));
+                 'Focus',        tryGet(cam, 'Focus'));
 
 end
 
