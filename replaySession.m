@@ -1,91 +1,106 @@
-% REPLAYSESSION  Reconstruct and save annotated video from raw frames + session log.
+% REPLAYSESSION  Write annotated video(s) from a recorded session.
 %
-%   Run this script after a recording session to generate an annotated
-%   replay video without affecting real-time performance.
+%   Script. Set recordingDir below, then run with F5.
+%   Reads raw frames saved by recordSession and blob counts from results.mat
+%   (written by processRecording), and writes one annotated video per camera
+%   to the recording directory.
 %
-%   Reads raw frames from frameDir and blob positions from the session log,
-%   draws overlays identically to the live display, and writes to a video file.
+%   Run processRecording on the session first to get blob counts in the
+%   annotation. Without results.mat the video is annotated with timestamps
+%   and sync timing only.
 %
-%   USER INPUTS — edit these before running
-frameDir   = 'output/frames/';
-logFile    = 'output/';          % path to session .mat — leave empty to pick latest
-videoOut   = 'output/replay.avi';
-playbackFps = 30;         % fps of output video; set lower to slow down replay
+%   See also: recordSession, processRecording
 
-% -------------------------------------------------------------------------
+clc; close all; clear;
 
-cfg   = buildConfig();
-cfg.N = 1;   % adjust if multi-camera session
+addpath(genpath(fileparts(mfilename('fullpath'))));
 
-% Load log — use specified file or find the most recent in output/.
-if isempty(logFile)
-    files = dir(fullfile(cfg.logDir, 'session_*.mat'));
-    if isempty(files)
-        error('No session files found in %s', cfg.logDir);
+% =========================================================================
+% USER INPUTS
+% =========================================================================
+recordingDir = 'output/recordings/REPLACE_WITH_SESSION_FOLDER';
+playbackFps  = 30;    % fps of output video; set lower to slow down replay
+
+% --- Load session ---
+sessionFile = fullfile(recordingDir, 'session.mat');
+if ~isfile(sessionFile)
+    error('replaySession:noSession', 'session.mat not found in %s', recordingDir);
+end
+loaded  = load(sessionFile);
+session = loaded.session;
+cfg     = session.cfg;
+N       = cfg.N;
+nFrames = session.nFrames;
+
+% --- Load processing results if available ---
+resultsFile = fullfile(recordingDir, 'results.mat');
+hasResults  = isfile(resultsFile);
+if hasResults
+    res = load(resultsFile);
+    res = res.results;
+    hasCentroids  = isfield(res, 'blobCentroids');
+    hasFullResults = isfield(res, 'nConfirmed');
+    fprintf('Loaded results.mat (detect-only: %d | full pipeline: %d).\n', ...
+            hasResults, hasFullResults);
+else
+    hasCentroids   = false;
+    hasFullResults = false;
+    fprintf('No results.mat found — run processRecording first for detection overlay.\n');
+end
+
+% --- Write one video per camera ---
+for i = 1:N
+
+    videoOut = fullfile(recordingDir, sprintf('cam%d_replay.avi', i));
+    vw = VideoWriter(videoOut);
+    vw.FrameRate = playbackFps;
+    open(vw);
+
+    fprintf('Writing cam %d / %d  (%d frames) -> %s\n', i, N, nFrames, videoOut);
+
+    for k = 1:nFrames
+
+        frame = imread(fullfile(recordingDir, sprintf('cam%d', i), ...
+                                sprintf('frame_%06d.tif', k)));
+
+        t      = session.log.timestamps(i, k);
+        syncMs = session.log.syncMs(k);
+
+        if hasFullResults
+            infoStr = sprintf('cam%d | t=%.2fs | sync %.1fms | blobs: %d | confirmed: %d | reprErr: %.1fpx', ...
+                              i, t, syncMs, res.nBlobs(i,k), res.nConfirmed(k), res.meanReprErr(k));
+        elseif hasResults
+            infoStr = sprintf('cam%d | t=%.2fs | sync %.1fms | blobs: %d', ...
+                              i, t, syncMs, res.nBlobs(i, k));
+        else
+            infoStr = sprintf('cam%d | t=%.2fs | sync %.1fms', i, t, syncMs);
+        end
+
+        % Convert grayscale to RGB so overlays render in colour.
+        annotated = repmat(frame, [1 1 3]);
+
+        annotated = insertText(annotated, [10 10], infoStr, ...
+                               'FontSize', 14, 'BoxColor', 'black', ...
+                               'TextColor', 'white', 'BoxOpacity', 0.6);
+
+        if hasCentroids
+            centroids = res.blobCentroids{k}{i};
+            if ~isempty(centroids)
+                circles   = [centroids, repmat(8, size(centroids, 1), 1)];
+                annotated = insertShape(annotated, 'Circle', circles, ...
+                                        'Color', 'green', 'LineWidth', 2);
+            end
+        end
+
+        writeVideo(vw, annotated);
+
+        if mod(k, 100) == 0
+            fprintf('  cam %d: %d / %d frames\n', i, k, nFrames);
+        end
     end
-    [~, idx] = max([files.datenum]);
-    logFile  = fullfile(cfg.logDir, files(idx).name);
+
+    close(vw);
+    fprintf('  Saved: %s\n', videoOut);
 end
 
-fprintf('Loading log: %s\n', logFile);
-loaded = load(logFile);
-log    = loaded.log;
-
-% Find all saved frames, sorted by number.
-frameFiles = dir(fullfile(frameDir, 'frame_*.png'));
-if isempty(frameFiles)
-    error('No frames found in %s', frameDir);
-end
-[~, order]  = sort({frameFiles.name});
-frameFiles  = frameFiles(order);
-nFrames     = numel(frameFiles);
-
-fprintf('Found %d frames. Building video...\n', nFrames);
-
-% Initialise video writer.
-if ~isfolder(fileparts(videoOut))
-    mkdir(fileparts(videoOut));
-end
-vw          = VideoWriter(videoOut);
-vw.FrameRate = playbackFps;
-open(vw);
-
-% Render each frame with overlay and write to video.
-for k = 1:nFrames
-
-    % frameFiles(k).folder is already an absolute path; prefixing frameDir
-    % again would produce a bogus concatenated path that imread can't find.
-    frame = imread(fullfile(frameFiles(k).folder, frameFiles(k).name));
-
-    % Retrieve blob data for this frame from log.
-    % log.nBlobs is [N x nFrames]; blob centroids are not stored yet —
-    % only counts. For full centroid replay, see note below.
-    nBlobs = log.nBlobs(1, min(k, size(log.nBlobs, 2)));
-    t      = log.timestamps(min(k, numel(log.timestamps)));
-    syncOk = log.syncFlags(min(k, numel(log.syncFlags)));
-
-    % Build annotation text.
-    infoStr = sprintf('t=%.2fs | blobs: %d | sync: %s', ...
-                      t, nBlobs, mat2str(syncOk));
-
-    % Draw info bar at top of frame.
-    display = insertText(frame, [10 10], infoStr, ...
-                         'FontSize', 14, 'BoxColor', 'black', ...
-                         'TextColor', 'white', 'BoxOpacity', 0.6);
-
-    if k <= numel(log.blobCentroids) && ~isempty(log.blobCentroids{k}{1})
-        centroids = log.blobCentroids{k}{1};
-        circles   = [centroids, repmat(6, size(centroids,1), 1)];
-        display   = insertShape(display, 'Circle', circles, ...
-                            'Color', 'green', 'LineWidth', 2);
-    end
-
-    writeVideo(vw, display);
-
-    if mod(k, 100) == 0
-        fprintf('  Written %d/%d frames\n', k, nFrames);
-    end
-end
-
-close(vw);
-fprintf('Done. Video saved to %s\n', videoOut);
+fprintf('Done.\n');

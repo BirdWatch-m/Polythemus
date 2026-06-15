@@ -8,9 +8,18 @@
 %   tuning. In 'full' mode the 3D positions are STRUCTURALLY produced but their
 %   absolute values are PENDING BUG-5 calibration validation (see ASSUMPTIONS.md).
 %
-%   Output: results.mat in the recording folder (per-frame counts; final tracks).
+%   Output: results.mat in the recording folder. Always written:
+%     results.nBlobs        [N x nFrames]  blob counts per camera
+%     results.blobCentroids {1 x nFrames}  {1xN} centroid arrays per frame
+%   Additional fields written in 'full' mode:
+%     results.nGroups       [1 x nFrames]  cross-camera association groups
+%     results.nPoints       [1 x nFrames]  valid triangulated points
+%     results.meanReprErr   [1 x nFrames]  mean reprojection error (px); NaN if no points
+%     results.nConfirmed    [1 x nFrames]  confirmed 3D tracks
+%     results.trackPositions{1 x nFrames}  [nConfirmed x 3] positions per frame
+%     results.finalTracks                  track struct array at session end
 %
-%   See also: recordSession, detectBlobs, associateViews, triangulateGroups, updateTracks
+%   See also: recordSession, replaySession, detectBlobs, associateViews, triangulateGroups, updateTracks
 
 clc; close all; clear;
 
@@ -66,11 +75,14 @@ if doFull
 end
 
 % --- Results log ---
-results.nBlobs = zeros(N, nFrames);
+results.nBlobs        = zeros(N, nFrames);
+results.blobCentroids = cell(1, nFrames);
 if doFull
-    results.nGroups    = zeros(1, nFrames);
-    results.nPoints    = zeros(1, nFrames);   % valid triangulations
-    results.nConfirmed = zeros(1, nFrames);
+    results.nGroups        = zeros(1, nFrames);
+    results.nPoints        = zeros(1, nFrames);
+    results.meanReprErr    = nan(1, nFrames);
+    results.nConfirmed     = zeros(1, nFrames);
+    results.trackPositions = cell(1, nFrames);
 end
 
 fprintf('Processing %d frames from %s (mode: %s)\n', nFrames, recordingDir, runMode);
@@ -80,13 +92,14 @@ for k = 1:nFrames
     % Read this frame from each camera.
     frames = cell(1, N);
     for i = 1:N
-        frames{i} = imread(fullfile(recordingDir, sprintf('cam%d', i), sprintf('frame_%06d.jpg', k)));
+        frames{i} = imread(fullfile(recordingDir, sprintf('cam%d', i), sprintf('frame_%06d.tif', k)));
     end
 
     % Detection (gray-frame interface — updateRingBuf converts once and returns it).
     [state.ringBuf, state.ringIdx, grayFrames] = updateRingBuf(state.ringBuf, state.ringIdx, frames, cfg);
     [blobs, state] = detectBlobs(grayFrames, state, cfg);
-    results.nBlobs(:, k) = cellfun(@numel, blobs).';
+    results.nBlobs(:, k)    = cellfun(@numel, blobs).';
+    results.blobCentroids{k} = cellfun(@(b) vertcat(b.centroid), blobs, 'UniformOutput', false);
 
     if doFull
         groups = associateViews(blobs, calibration, cfg);
@@ -98,7 +111,15 @@ for k = 1:nFrames
 
         results.nGroups(k)    = numel(groups);
         results.nPoints(k)    = numel(valid);
+        results.meanReprErr(k) = mean([valid.reprojErr]);   % NaN when valid is empty
         results.nConfirmed(k) = sum(strcmp({tracks.state}, 'confirmed'));
+
+        confirmed = tracks(strcmp({tracks.state}, 'confirmed'));
+        if isempty(confirmed)
+            results.trackPositions{k} = zeros(0, 3);
+        else
+            results.trackPositions{k} = vertcat(confirmed.lastPos);
+        end
     end
 
     if mod(k, 30) == 0

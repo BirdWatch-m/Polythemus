@@ -29,7 +29,12 @@ grayFrames = cell(1, N);
 
 for i = 1:N
     % Convert colour frame to grayscale once; store it and hand it back.
-    grayFrames{i} = rgb2gray(frames{i});
+    % Guard handles grayscale input (e.g. frames loaded from a grayscale recording).
+    if size(frames{i}, 3) == 3
+        grayFrames{i} = rgb2gray(frames{i});
+    else
+        grayFrames{i} = frames{i};
+    end
     ringBuf{i}(:,:,ringIdx(i)) = grayFrames{i};
 
     % Advance write pointer, wrapping at buffer length.
