@@ -22,12 +22,13 @@
 %   See also: recordSession, replaySession, detectBlobs, associateViews, triangulateGroups, updateTracks
 
 clc; close all; clear;
+addpath(genpath(fileparts(mfilename('fullpath'))));
 
 % =========================================================================
 % USER INPUTS
 % =========================================================================
-recordingDir = 'output/recordings/REPLACE_WITH_SESSION_FOLDER';
-runMode      = 'detect';    % 'detect' | 'full'
+recordingDir = 'output/recordings/20260617_174115';
+runMode      = 'full';    % 'detect' | 'full'
 
 % --- Load the recording ---
 sessionFile = fullfile(recordingDir, 'session.mat');
