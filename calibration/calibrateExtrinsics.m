@@ -1,58 +1,59 @@
-function multiCamParams = calibrateExtrinsics(cfg, intrinsicFiles, knownBaseline)
 % CALIBRATEEXTRINSICS  Compute inter-camera geometry from a shared scene.
 %
-%   multiCamParams = calibrateExtrinsics(cfg, intrinsicFiles)
-%   multiCamParams = calibrateExtrinsics(cfg, intrinsicFiles, knownBaseline)
+%   Script. Edit USER INPUTS below, then run with F5.
 %
-%   With all cameras mounted in their final positions, this function captures
-%   one simultaneous frame per camera, matches visual features between
+%   With all cameras mounted in their final positions, captures one
+%   simultaneous frame per camera, matches visual features between
 %   overlapping camera pairs, and recovers the rotation and translation of
 %   every camera relative to camera 1 (which defines the world origin).
+%   Saves the result to cfg.calFile.
 %
 %   Run this every time cameras are physically moved or re-aimed.
 %   Intrinsic calibration (calibrateIntrinsics) does NOT need to be repeated.
 %
-%   INPUTS
-%     cfg            — struct from buildConfig()
-%     intrinsicFiles — {1 x N} cell of strings, paths to the .mat files
-%                      saved by calibrateIntrinsics for each camera.
-%                      e.g. {'calibration/intrinsics_cam1.mat',
-%                             'calibration/intrinsics_cam2.mat',
-%                             'calibration/intrinsics_cam3.mat'}
-%     knownBaseline  — (optional) physical distance in metres between the
-%                      optical centres of adjacent cameras, measured with a
-%                      tape measure. Sets the metric scale of the world
-%                      coordinate system. If omitted, translations are
-%                      unit-scale and validateCalibration must be used to
-%                      apply scale separately.
+%   USER INPUTS
+%     intrinsicFiles  {1xN} paths to .mat files from calibrateIntrinsics
+%     knownBaseline   physical distance between adjacent camera optical
+%                     centres in metres (tape measure). Sets metric scale.
+%                     Set to [] to save unit-scale translation.
 %
 %   OUTPUT
-%     multiCamParams — struct saved to cfg.calFile, containing:
-%       .intrinsics{i}  cameraIntrinsics object for camera i
+%     cfg.calFile — multiCamParams struct (stays in workspace as multiCamParams):
+%       .intrinsics{i}  cameraParameters object for camera i
 %       .R{i}           3x3 rotation matrix — orientation of camera i
 %       .t{i}           3x1 translation vector — position of camera i
-%                       Camera 1 has R = eye(3), t = [0;0;0] by definition.
-%       .F{i,j}         3x3 fundamental matrix for pair (i,j); added by
-%                       initSystem on load, not stored here.
-%
-%   COORDINATE CONVENTION
-%     World origin = optical centre of camera 1.
-%     X axis = rightward in camera 1's view.
-%     Y axis = downward in camera 1's view.
-%     Z axis = into the scene (depth).
+%                       Camera 1: R = eye(3), t = [0;0;0].
 %
 %   REQUIREMENTS
-%     - Cameras must have overlapping fields of view with a distant scene
-%       (buildings, rooftops, tree lines) containing rich texture.
-%     - Each camera must share visible features with at least one already-
-%       localised camera (camera 1 is always localised first).
-%     - Brighter daylight conditions improve feature matching significantly.
+%     Cameras must share a textured scene region (buildings, rooftops, tree
+%     lines). Blank sky will not produce enough feature matches. Brighter
+%     daylight improves matching significantly.
 %
-%   VALIDATION
-%     After saving, run validateCalibration(cfg) to check reprojection error
-%     against a scene point at a known distance.
+%   ALTERNATIVE
+%     Use calibrateExtrinsicsCheckerboard when the scene lacks texture.
+%     That script uses a held checkerboard and derives metric scale from
+%     squareSizeM directly — no knownBaseline measurement required.
 %
-%   See also: calibrateIntrinsics, validateCalibration, initSystem
+%   See also: calibrateIntrinsics, calibrateExtrinsicsCheckerboard,
+%             validateCalibration, initSystem
+
+% =========================================================================
+% USER INPUTS — edit these before running
+% =========================================================================
+
+clc; close all; clear;
+
+addpath(genpath(fullfile(fileparts(mfilename('fullpath')), '..')));
+
+cfg = buildConfig();
+
+intrinsicFiles = {'calibration/intrinsics_MY1_720.mat', ...
+                  'calibration/intrinsics_LG1_720.mat'};
+
+knownBaseline = 3.5;   % physical distance between camera optical centres, metres
+                        % set to [] to save unit-scale translation
+
+% =========================================================================
 
 N = cfg.N;
 
@@ -74,7 +75,7 @@ for i = 1:N
     end
     loaded = load(intrinsicFiles{i});
     fn = fieldnames(loaded);
-    intrinsics{i} = loaded.(fn{1});   % load whatever variable is in the file
+    intrinsics{i} = loaded.(fn{1});
     fprintf('Loaded intrinsics for camera %d (%.3fpx focal length).\n', ...
             i, mean(intrinsics{i}.FocalLength));
 end
@@ -86,9 +87,9 @@ end
 fprintf('\nOpening cameras for simultaneous capture...\n');
 cams = cell(1, N);
 for i = 1:N
-    cams{i} = webcam(cfg.camIndices(i));   % logical camera i -> physical webcamlist index
+    cams{i} = webcam(cfg.camIndices(i));
     cams{i}.Resolution = sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2));
-    applyCameraSettings(cams{i}, cfg);     % manual focus + locked exposure/WB
+    applyCameraSettings(cams{i}, cfg);
 end
 
 % Live preview: stream all cameras simultaneously. Close the window to capture.
@@ -102,10 +103,14 @@ for i = 1:N
 end
 
 while ishandle(fig)
-    for i = 1:N
-        set(hImg(i), 'CData', snapshot(cams{i}));
+    try
+        for i = 1:N
+            set(hImg(i), 'CData', snapshot(cams{i}));
+        end
+        drawnow limitrate;
+    catch
+        break
     end
-    drawnow limitrate;
 end
 
 % Capture one frame per camera immediately after the window closes.
@@ -120,42 +125,26 @@ cams = {};
 % -------------------------------------------------------------------------
 % Camera 1 is the world reference: R{1} = I, t{1} = 0.
 % For every other camera i, we find its pose relative to camera 1 by:
-%   (a) matching features between camera 1 and camera i,
+%   (a) matching SURF features between camera 1 and camera i,
 %   (b) estimating the fundamental matrix from those matches,
 %   (c) recovering R and t from the fundamental matrix + intrinsics.
-%
-% If cameras i and 1 share insufficient overlap (e.g. camera 3 vs camera 1
-% across a large baseline), we chain: localise camera 2 from camera 1,
-% then localise camera 3 from camera 2, then compose the transforms.
 
 R = cell(1, N);
 t = cell(1, N);
-
-% Camera 1 is the world origin by definition.
 R{1} = eye(3);
 t{1} = zeros(3, 1);
 
-% Determine localisation order: greedy — process cameras in index order.
-% If a pair has insufficient matches, the function will error with advice.
 for i = 2:N
-
-    % Find the already-localised camera with best expected overlap with i.
-    % Simple heuristic: use the nearest lower-index camera.
     ref = i - 1;
-
     fprintf('\nLocalising camera %d relative to camera %d...\n', i, ref);
 
     [R_rel, t_rel] = estimateRelativePose( ...
         frames{ref}, frames{i}, intrinsics{ref}, intrinsics{i});
 
-    % Apply metric scale if the physical baseline was provided.
-    % norm(t_rel) = 1 from relativeCameraPose (unit-scale); rescale so the
-    % magnitude equals the measured distance between optical centres.
-    if nargin >= 3 && ~isempty(knownBaseline)
+    if ~isempty(knownBaseline)
         t_rel = t_rel * (knownBaseline / norm(t_rel));
     end
 
-    % Compose with reference camera's pose to get pose in world frame.
     R{i} = R_rel * R{ref};
     t{i} = R_rel * t{ref} + t_rel;
 
@@ -179,11 +168,11 @@ fprintf('\nVerify baselines against your physical telemeter measurements.\n');
 % 5. ASSEMBLE AND SAVE
 % -------------------------------------------------------------------------
 
-multiCamParams.intrinsics = intrinsics;
-multiCamParams.R          = R;
-multiCamParams.t          = t;
-multiCamParams.capturedAt = datestr(now);
-multiCamParams.sourceFrames = frames;   % stored for later inspection
+multiCamParams.intrinsics   = intrinsics;
+multiCamParams.R            = R;
+multiCamParams.t            = t;
+multiCamParams.capturedAt   = datestr(now);
+multiCamParams.sourceFrames = frames;
 
 if ~isfolder(fileparts(cfg.calFile))
     mkdir(fileparts(cfg.calFile));
@@ -191,13 +180,11 @@ end
 
 save(cfg.calFile, 'multiCamParams');
 fprintf('\nCalibration saved to: %s\n', cfg.calFile);
-fprintf('Run validateCalibration(cfg) to verify triangulation accuracy.\n');
-
-end
+fprintf('Run validateCalibration to verify triangulation accuracy.\n');
 
 
 % =========================================================================
-% LOCAL HELPERS
+% LOCAL FUNCTIONS
 % =========================================================================
 
 function [R_rel, t_rel] = estimateRelativePose(frameRef, frameTarget, intrRef, intrTgt)
@@ -206,16 +193,13 @@ function [R_rel, t_rel] = estimateRelativePose(frameRef, frameTarget, intrRef, i
 gryRef = rgb2gray(frameRef);
 gryTgt = rgb2gray(frameTarget);
 
-% Detect SURF feature points in both frames.
-ptsRef = detectSURFFeatures(gryRef, 'MetricThreshold', 600);
-ptsTgt = detectSURFFeatures(gryTgt, 'MetricThreshold', 600);
+ptsRef = detectSURFFeatures(gryRef, 'MetricThreshold', 300);
+ptsTgt = detectSURFFeatures(gryTgt, 'MetricThreshold', 300);
 
-% Extract feature descriptors at each detected point.
 [descRef, ptsRef] = extractFeatures(gryRef, ptsRef);
 [descTgt, ptsTgt] = extractFeatures(gryTgt, ptsTgt);
 
-% Match descriptors between the two frames; keep only strong matches.
-pairs = matchFeatures(descRef, descTgt, 'MatchThreshold', 50, 'MaxRatio', 0.6);
+pairs = matchFeatures(descRef, descTgt, 'MatchThreshold', 50, 'MaxRatio', 0.7);
 
 matchedRef = ptsRef(pairs(:,1));
 matchedTgt = ptsTgt(pairs(:,2));
@@ -230,7 +214,6 @@ end
 
 fprintf('  %d feature matches found.\n', size(pairs,1));
 
-% Estimate fundamental matrix with RANSAC to reject false matches.
 [F, inliers] = estimateFundamentalMatrix( ...
     matchedRef.Location, matchedTgt.Location, ...
     'Method',    'RANSAC', ...
@@ -249,22 +232,13 @@ if sum(inliers) < 12
           sum(inliers));
 end
 
-% Recover rotation and translation from fundamental matrix + intrinsics.
-[R_rel, t_rel] = relativeCameraPose(F, intrRef, intrTgt, ...
-                                     inlierRef, inlierTgt);
-
-% relativeCameraPose returns t up to an unknown scale — it can only
-% determine direction, not magnitude, from images alone.
-% Absolute scale is fixed when we know the physical baseline.
-% We leave t_rel as unit-scale here; validateCalibration handles scaling.
-t_rel = t_rel';   % ensure column vector
+[R_rel, t_rel] = relativeCameraPose(F, intrRef, intrTgt, inlierRef, inlierTgt);
+t_rel = t_rel';
 
 end
 
 
 function [az, el] = rotationToAzEl(R)
-% Extracts approximate azimuth and elevation angles from a rotation matrix.
-% Useful only for sanity-checking output; not used in computation.
 az = atan2d(R(1,3), R(3,3));
 el = -asind(R(2,3));
 end

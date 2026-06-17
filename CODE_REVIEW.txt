@@ -17,6 +17,29 @@ Legend:   [BUG]  correctness defect, will misbehave when run
 UPDATE LOG  (changes since this review — newest first)
 ================================================================
 
+2026-06-14 — calibrateExtrinsicsCheckerboard.m added:
+
+  New script: calibration/calibrateExtrinsicsCheckerboard.m. Provides a
+  checkerboard-based alternative to calibrateExtrinsics (which uses SURF
+  features in a textured outdoor scene). Outputs the same multiCamParams
+  struct to cfg.calFile for drop-in compatibility with the rest of the
+  pipeline. Metric scale is derived directly from squareSizeM — no
+  knownBaseline tape-measure argument required (extrinsics() supplies
+  absolute scale from the known board geometry).
+
+  Workflow: live side-by-side preview of both cameras with detected corner
+  overlays; auto-captures a frame pair when the board is stable in BOTH
+  cameras simultaneously (drift < STABILITY_THR px); repeats every
+  AUTO_INTERVAL seconds. After Q (or MIN_CAPTURES pairs reached), runs
+  extrinsics() on each pair to get the board-to-camera pose in metric, then
+  computes the camera-to-camera relative pose (X_cam2 = R12*X_cam1 + t12)
+  per pair, averages with meanrot (rotation) and mean (translation), and
+  saves. Geometry summary + per-pair reprojection errors printed to console.
+
+  Use this when SURF calibration fails (too few matches, featureless outdoor
+  scene, overcast / low-contrast day). A4 board at 2-3m range is optimal for
+  720p with ~3m camera separation.
+
 2026-06-13 — calibration + camera settings improvements:
 
   calibrateExtrinsics: replaced press-any-key + static snapshot review with a

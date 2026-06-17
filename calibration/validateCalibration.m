@@ -1,37 +1,47 @@
-function results = validateCalibration(cfg)
 % VALIDATECALIBRATION  Verify triangulation accuracy against a known distance.
 %
-%   results = validateCalibration(cfg)
+%   Script. Run with F5.
 %
 %   Loads the saved calibration, captures a live frame from each camera,
 %   lets you click the same physical point in each camera's image, then
 %   triangulates it and reports the estimated distance. Compare against
-%   a distance measured physically.
+%   a distance measured physically (telemeter or tape).
 %
-%   Read-only check — does not modify the calibration file. Scale must be
-%   set via the knownBaseline argument to calibrateExtrinsics.
-%   If reprojection errors exceed 5px, repeat extrinsic calibration with
-%   more feature matches or better lighting conditions.
-%
-%   INPUT
-%     cfg     — struct from buildConfig()
-%
-%   OUTPUT
-%     results — struct with fields:
-%       .point3D          [1x3] triangulated world coordinates (metres)
-%       .distFromCam1     scalar estimated distance from camera 1 (metres)
-%       .reprErrors       [1xN] reprojection error per camera (pixels)
-%       .clickedPixels    [Nx2] pixel coordinates you clicked per camera
+%   Read-only check — does not modify the calibration file.
 %
 %   PROCEDURE
 %     1. Place a distinctive small object (e.g. a bright coloured marker
 %        taped to a wall) at a measured distance from camera 1.
-%        Measure the distance precisely with your telemeter.
-%     2. Run this function.
+%     2. Run this script.
 %     3. Click the object in each camera's image when prompted.
 %     4. Compare results.distFromCam1 against your measured distance.
 %
-%   See also: calibrateExtrinsics, calibrateIntrinsics
+%   THRESHOLDS
+%     Reprojection errors <3px — good.
+%     Reprojection errors >5px — suggests a rotation issue; recalibrate.
+%     Distance error >5%      — scale not set; rerun calibrateExtrinsics
+%                               with the correct knownBaseline.
+%
+%   OUTPUT (left in workspace as 'results')
+%     .point3D          [1x3] triangulated world coordinates (metres)
+%     .distFromCam1     scalar estimated distance from camera 1 (metres)
+%     .reprErrors       [1xN] reprojection error per camera (pixels)
+%     .clickedPixels    [Nx2] pixel coordinates clicked per camera
+%
+%   See also: calibrateExtrinsics, calibrateExtrinsicsCheckerboard,
+%             calibrateIntrinsics
+
+% =========================================================================
+% USER INPUTS — edit these before running
+% =========================================================================
+
+clc; close all; clear;
+
+addpath(genpath(fullfile(fileparts(mfilename('fullpath')), '..')));
+
+cfg = buildConfig();
+
+% =========================================================================
 
 N = cfg.N;
 
@@ -50,9 +60,9 @@ cal    = loaded.multiCamParams;
 fprintf('Opening cameras...\n');
 cams = cell(1, N);
 for i = 1:N
-    cams{i} = webcam(cfg.camIndices(i));   % logical camera i -> physical webcamlist index
+    cams{i} = webcam(cfg.camIndices(i));
     cams{i}.Resolution = sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2));
-    applyCameraSettings(cams{i}, cfg);     % manual focus + locked exposure/WB
+    applyCameraSettings(cams{i}, cfg);
 end
 
 fprintf('Press any key to capture validation frames.\n');
@@ -62,8 +72,6 @@ frames = cell(1, N);
 for i = 1:N
     frames{i} = snapshot(cams{i});
 end
-% Dropping every reference releases the underlying webcam handles.
-% (`clear cams{i}` does NOT work — clear takes literal names, not indices.)
 cams = {};
 
 % -------------------------------------------------------------------------
@@ -100,10 +108,10 @@ point3D    = pt.position;
 reprErrors = pt.reprojErr;
 
 % -------------------------------------------------------------------------
-% 4. REPORT + SCALE FIX
+% 4. REPORT
 % -------------------------------------------------------------------------
 
-distFromCam1 = norm(point3D);   % cam1 is world origin so t{1} = 0
+distFromCam1 = norm(point3D);
 
 fprintf('\n--- Validation results ---\n');
 fprintf('Triangulated position: [%.3f  %.3f  %.3f] m\n', point3D);
@@ -117,5 +125,3 @@ results.point3D       = point3D;
 results.distFromCam1  = distFromCam1;
 results.reprErrors    = reprErrors;
 results.clickedPixels = clickedPixels;
-
-end

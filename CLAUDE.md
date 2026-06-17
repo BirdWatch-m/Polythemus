@@ -41,7 +41,7 @@ association/             associateViews (cross-camera epipolar matching)
 triangulation/           triangulateGroups (DLT multi-view triangulation + reprojection gate)
 tracking/                updateTracks (constant-velocity Kalman, track lifecycle)
 io/                      renderFrame, logFrame, saveSession
-calibration/             calibrateIntrinsics, calibrateExtrinsics, validateCalibration, buildFundamentalMatrices
+calibration/             calibrateIntrinsics, calibrateExtrinsics, calibrateExtrinsicsCheckerboard, validateCalibration, buildFundamentalMatrices
 config/                  drawSkyMasks
 tests/                   testAssociateViews, testTriangulateGroups, testUpdateTracks (synthetic unit tests)
 ```
