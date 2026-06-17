@@ -57,7 +57,7 @@ tests/                   testAssociateViews, testTriangulateGroups, testUpdateTr
 | Live display, logging, session save | Done |
 | Live pipeline (main.m) | Full pipeline wired (detect → associate → triangulate → track); ~9 fps detect-limited; saves session log on exit |
 | Intrinsic calibration | Done — MY8077 + C922, at 1080p and 720p |
-| Extrinsic calibration | Scale validated indoors (0.1% error at 3.31m); reprojection 10.47px — retest outdoors with sharp target to check rotation |
+| Extrinsic calibration | Convention bug fixed (postmultiply→premultiply in both calibration scripts); re-run checkerboard calibration before next outdoor session |
 | Cross-camera association | Epipolar matching implemented + unit-tested; wired into main |
 | Multi-view triangulation | DLT + reprojection gate implemented + unit-tested; wired into main |
 | 3D Kalman tracking | Constant-velocity Kalman + lifecycle implemented + unit-tested; wired into main |

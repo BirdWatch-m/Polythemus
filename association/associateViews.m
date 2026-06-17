@@ -15,8 +15,8 @@ function groups = associateViews(blobs, calibration, cfg)
 %   observations allowed).
 %
 %   Convention-agnostic: it consumes whatever F{i,j} it is given and only checks
-%   the epipolar relation, so it does NOT depend on the extrinsic pose
-%   convention being resolved (see BUG-5) — only end-to-end accuracy does.
+%   the epipolar relation. Accuracy depends on calibration quality, not on which
+%   convention F was built with.
 %
 %   INPUTS
 %     blobs       — {1xN} cell of blob struct arrays (from detectBlobs); each

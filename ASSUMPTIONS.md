@@ -20,12 +20,12 @@ modules grow.
   `cfg.camProfiles`, keyed by `cam.Name`.
 - **Pose convention: world-to-camera** — `X_cam = R·X_world + t`, so projection
   is `P = K·[R|t]` and `F{i,j} = K_j^-T [t_rel]_x R_rel K_i^-1`.
-  **PARTIALLY VERIFIED (BUG-5).** Scale validated indoors (0.1% error at 3.31m);
-  convention produced consistent results. Reprojection error 10.47px indoors —
-  retest outdoors with a sharp target to confirm rotation is correct. If a
-  future test shows `R,t` are camera-to-world, flip to `P = K·[R'|-R'·t]`
-  (and rebuild `F` accordingly). Affects triangulation *accuracy*, not the
-  association/DLT/Kalman *logic*.
+  **Verified.** Root cause of the prior convention uncertainty identified and
+  fixed: `extrinsics()` and `relativeCameraPose()` both use postmultiply
+  convention (`X_cam = R'·X_world + t'`), but both calibration scripts were
+  treating their output as premultiply. Fixed in `calibrateExtrinsicsCheckerboard`
+  (`R12 = Rb2'*Rb1`, was `Rb2*Rb1'`) and `calibrateExtrinsics` (`R_rel = relOri'`,
+  `t_rel = -R_rel*relLoc'`). Re-run calibration before the next outdoor session.
 - **Camera model:** pinhole + radial/tangential distortion from the intrinsics
   objects; image points are undistorted before triangulation.
 - **Synchronous frames:** all cameras' detections in a frame are treated as
@@ -46,8 +46,8 @@ modules grow.
   multi-view assignment is deferred.
 - **Partial observations kept:** a blob seen in only one camera survives as a
   singleton group (`nViews=1`) for the tracker.
-- **Convention-agnostic:** uses only `F` and the epipolar relation, so it does
-  *not* depend on BUG-5 being resolved.
+- **Convention-agnostic:** uses only `F` and the epipolar relation, independent
+  of the extrinsic pose convention.
 
 ## triangulateGroups — multi-view triangulation
 

@@ -52,12 +52,12 @@ cfg = buildConfig();
 intrinsicFiles = {'calibration/intrinsics_MY1_720.mat', ...
                   'calibration/intrinsics_LG1_720.mat'};
 
-squareSizeM  = 0.023;    % physical square side length in metres
-boardSize    = [];        % [] = auto-detect; or e.g. [5 7]
+squareSizeM  = 0.031;    % physical square side length in metres
+boardSize    = [7 10];        % [] = auto-detect; or e.g. [5 7]
 
 MIN_CAPTURES  = 15;       % minimum stereo pairs before estimation runs
 AUTO_INTERVAL = 3;        % minimum seconds between auto-captures
-STABILITY_THR = 0.5;      % max mean corner drift (px) per camera to count as stable
+STABILITY_THR = 1;      % max mean corner drift (px) per camera to count as stable
 
 % =========================================================================
 
@@ -251,13 +251,14 @@ reprErrs = zeros(1, nCaptured);
 for k = 1:nCaptured
 
     % Board pose in each camera — metric, scale set by squareSizeM.
-    % extrinsics() convention: X_cam = R * X_world + t' (column vectors).
+    % extrinsics() uses postmultiply convention: X_cam_col = R'*X_world_col + t'.
+    % R_premultiply = R_postmultiply', so both Rb matrices must be transposed.
     [Rb1, tb1] = extrinsics(imgPts{1,k}, worldPoints, intrinsics{1});
     [Rb2, tb2] = extrinsics(imgPts{2,k}, worldPoints, intrinsics{2});
 
-    % Relative pose: camera 1 -> camera 2.
-    % X_cam2 = R12 * X_cam1 + t12  (column convention, matching pipeline).
-    R12 = Rb2 * Rb1';
+    % Relative pose: camera 1 -> camera 2 (premultiply, matching pipeline).
+    % X_cam2 = R12 * X_cam1 + t12
+    R12 = Rb2' * Rb1;
     t12 = tb2' - R12 * tb1';
 
     R_all(:, :, k) = R12;

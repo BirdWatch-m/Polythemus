@@ -10,7 +10,7 @@ function calibration = buildFundamentalMatrices(calibration, N)
 %   Relation used: F = K_j^-T * [t_rel]_x * R_rel * K_i^-1, with R_rel, t_rel
 %   the pose of camera j relative to camera i.
 %
-%   Convention note: assumes R, t are world-to-camera (see ASSUMPTIONS.md / BUG-5).
+%   Convention: R, t are world-to-camera — X_cam = R * X_world + t.
 %
 %   INPUTS
 %     calibration — struct with .intrinsics{i}, .R{i} (3x3), .t{i} (3x1)

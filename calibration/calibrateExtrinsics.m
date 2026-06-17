@@ -232,8 +232,11 @@ if sum(inliers) < 12
           sum(inliers));
 end
 
-[R_rel, t_rel] = relativeCameraPose(F, intrRef, intrTgt, inlierRef, inlierTgt);
-t_rel = t_rel';
+% relativeCameraPose uses postmultiply convention. Apply transpose fix:
+%   R_correct = relOri',  t_correct = -R_correct * relLoc'
+[relOri, relLoc] = relativeCameraPose(F, intrRef, intrTgt, inlierRef, inlierTgt);
+R_rel = relOri';
+t_rel = -R_rel * relLoc';
 
 end
 

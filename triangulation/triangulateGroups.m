@@ -14,12 +14,10 @@ function points = triangulateGroups(groups, calibration, cfg)
 %   views yields A*X = 0, solved for the homogeneous world point X as the right
 %   singular vector of A for the smallest singular value (SVD null space).
 %
-%   CONVENTION (relevant to BUG-5)
-%     Projection matrices are built as P = K * [R | t], i.e. R, t are taken as
-%     WORLD-to-CAMERA (X_cam = R * X_world + t), consistent with how initSystem
-%     builds the fundamental matrices. If BUG-5 validation shows the stored
-%     R, t are camera-to-world, build P = K * [R' | -R'*t] instead. The DLT
-%     itself is correct either way; only which convention is right is open.
+%   CONVENTION
+%     Projection matrices are built as P = K * [R | t], where R, t are
+%     world-to-camera (X_cam = R * X_world + t), consistent with how
+%     buildFundamentalMatrices constructs F.
 %
 %   LIMITATION
 %     A mismatch that lies ALONG the epipolar line is geometrically consistent —

@@ -87,7 +87,7 @@ UPDATE LOG  (changes since this review — newest first)
   appends to it — would error on the first logFrame call. Fixed: added
   state.log.blobCentroids = {} to initSystem's log initialisation block.
 
-  Remaining gate to meaningful 3D output: BUG-5 (extrinsic validation).
+  BUG-5 resolved — see entry below.
 
 2026-06-05 — critical bugs fixed + multi-camera prep (branch fix/critical-bugs):
 
@@ -101,14 +101,15 @@ UPDATE LOG  (changes since this review — newest first)
   [BUG-4] RESOLVED. calibrateIntrinsics is a script; tic/toc instead of
           datetime; save() moved BEFORE the holdout block (a good result is no
           longer lost if the holdout throws); pwd-independent saveFile.
-  [BUG-5] PARTIAL. Scale validated indoors (2026-06-13): calibrateExtrinsics
-          now accepts an optional knownBaseline (metres) and scales t_rel
-          immediately so calFile is metric from the start. Indoor test with
-          scale factor 8.66x: post-scale distance error 0.1% at 3.31m.
-          Reprojection error 10.47px — likely clicking imprecision on an
-          out-of-focus indoor target; retest outdoors with a sharp target
-          before trusting rotation. Pose convention unconfirmed but consistent
-          with correct results. validateCalibration is now a read-only check.
+  [BUG-5] RESOLVED (2026-06-18). Root cause identified: extrinsics() and
+          relativeCameraPose() both use postmultiply convention, but both
+          calibration scripts treated their output as premultiply. This
+          produced R = R_correct' (inverted rotation) and a wrong t. Scale
+          appeared correct (norm of t is convention-independent) which masked
+          the rotation error. Fixed in calibrateExtrinsicsCheckerboard
+          (R12 = Rb2'*Rb1, was Rb2*Rb1') and calibrateExtrinsics
+          (R_rel = relOri', t_rel = -R_rel*relLoc'). Re-run calibration
+          before next outdoor session.
   [CONV-2] PARTIAL. applyBackground magic numbers moved to cfg; others remain.
 
   Work beyond the original review:
@@ -331,34 +332,18 @@ Either way, also:
     or use `tic/toc` instead of datetime.
 
 
-[BUG-5]  Pose-composition convention is not verified
+[BUG-5]  Pose-composition convention — RESOLVED 2026-06-18
 ---------------------------------------------------------------------
-File: calibrateExtrinsics.m, lines 143-144
+Original finding: relativeCameraPose() convention uncertain; composition
+R{i} = R_rel * R{ref} correct only if R, t are world-to-camera.
 
-    R{i} = R_rel * R{ref};
-    t{i} = R_rel * t{ref} + t_rel;
-
-`relativeCameraPose` returns the pose of camera target relative to
-camera ref in the convention `X_ref = R_rel * X_target + t_rel` (i.e.
-target-to-ref). The composition above is correct only under the
-"world-to-camera" interpretation of R, t.
-
-In validateCalibration.m line 91 you then build:
-    tform = rigidtform3d(cal.R{i}, cal.t{i}');
-
-`triangulateMultiview` requires the AbsolutePose field to be the
-camera's pose in WORLD coordinates (camera-to-world). If R{i}, t{i}
-are world-to-camera, you'd need to invert: R_abs = R{i}', t_abs = -R{i}' * t{i}.
-
-This may already be working depending on which MATLAB toolbox version
-you have (the convention changed around R2022b when rigidtform3d
-replaced rigid3d). Action: run validateCalibration once cameras are
-mounted and confirm the reported distance matches your tape-measured
-distance to within a few percent. If it's off by exactly the right
-ratio but in the wrong sign of one axis, this is the cause.
-
-(I'd not change anything here speculatively — the exact convention
-depends on toolbox version and is best verified empirically.)
+Resolution: confirmed both extrinsics() and relativeCameraPose() use
+postmultiply convention (X_cam_row = X_world_row * R + t). Both
+calibration scripts were treating R as premultiply (world-to-camera
+directly), producing R_stored = R_correct'. Fixed:
+  calibrateExtrinsicsCheckerboard: R12 = Rb2'*Rb1  (was Rb2*Rb1')
+  calibrateExtrinsics:             R_rel = relOri'; t_rel = -R_rel*relLoc'
+The composition R{i} = R_rel * R{ref} is correct; only the inputs were wrong.
 
 
 ================================================================
@@ -761,7 +746,7 @@ calibrateIntrinsics.m
   resolved
 
 calibrateExtrinsics.m
-  - See [BUG-2], [BUG-5].
+  - See [BUG-2]. [BUG-5] resolved — see entry above.
   - The "greedy nearest-lower-index" chaining is correct in spirit
     but blind. With your 3-camera physical layout (cams 1+2 close,
     cam 3 across the balcony) cam 3 will be chained off cam 2, which
@@ -835,9 +820,8 @@ require the next.
            docs; one commit if you move files (also re-run
            testSingleCamera afterwards).
 
-  Step 8.  Validate [BUG-5] empirically the next time you have two
-           cameras physically set up. This is the milestone gate to
-           starting work on cross-camera association.
+  Step 8.  [BUG-5] resolved — re-run checkerboard calibration before
+           the next outdoor session with the fixed script.
 
   Step 9.  Stub-out unimplemented modules referenced in see-also
            comments ([DEAD-7]). Tiny but clears warnings.

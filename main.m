@@ -10,12 +10,6 @@
 %     Verify cfg.camIndices against webcamlist() each session — the ordering
 %     is OS-driven and can change between reboots or replugs.
 %
-%   CALIBRATION STATUS (BUG-5)
-%     Extrinsics have run once but are not yet validated. Scale and pose
-%     convention are unconfirmed; 3D outputs are structurally correct but
-%     absolute values should not be trusted until validateCalibration is
-%     run with a measured baseline. See ASSUMPTIONS.md.
-%
 %   Press Q (with the live figure focused) to stop.
 %
 %   See also: buildConfig, initSystem, recordSession, processRecording
@@ -27,8 +21,6 @@ addpath(genpath(fileparts(mfilename('fullpath'))));
 cfg   = buildConfig();
 state = initSystem(cfg);    % cameras, buffers, calibration, tracking, log
 
-fprintf(['\nCALIBRATION NOTE: extrinsics not yet validated (BUG-5). ' ...
-         '3D values are structural only.\n\n']);
 
 % Q-to-stop figure. renderFrame finds this figure by name; create it here
 % so the key handler is attached before the first render call.

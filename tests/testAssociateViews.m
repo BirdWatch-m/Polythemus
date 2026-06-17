@@ -5,7 +5,7 @@ function testAssociateViews()
 %   views (these must associate into pairs), adds one unmatched blob per camera
 %   (these must stay singletons), and checks associateViews groups them
 %   correctly. Self-consistent: the same convention builds F and projects the
-%   points, so it does not depend on the real extrinsic convention (BUG-5).
+%   points, so it is independent of the real camera calibration.
 %
 %   Run from the project root:
 %       addpath(genpath(pwd)); testAssociateViews

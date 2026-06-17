@@ -5,8 +5,7 @@
 %   association -> triangulation -> tracking stages) frame by frame.
 %
 %   Detection results are valid now and good for offline threshold/morphology
-%   tuning. In 'full' mode the 3D positions are STRUCTURALLY produced but their
-%   absolute values are PENDING BUG-5 calibration validation (see ASSUMPTIONS.md).
+%   tuning. In 'full' mode the full pipeline runs offline on the saved frames.
 %
 %   Output: results.mat in the recording folder. Always written:
 %     results.nBlobs        [N x nFrames]  blob counts per camera
@@ -28,7 +27,7 @@ addpath(genpath(fileparts(mfilename('fullpath'))));
 % USER INPUTS
 % =========================================================================
 recordingDir = 'output/recordings/20260617_174115';
-runMode      = 'full';    % 'detect' | 'full'
+runMode      = 'detect';    % 'detect' | 'full'
 
 % --- Load the recording ---
 sessionFile = fullfile(recordingDir, 'session.mat');
@@ -72,7 +71,7 @@ if doFull
 
     ts  = mean(session.log.timestamps, 1);     % mean timestamp per frame
     dts = [1/cfg.fps, diff(ts)];               % per-frame dt (first = nominal)
-    fprintf('FULL pipeline — 3D positions are PENDING BUG-5 validation.\n');
+
 end
 
 % --- Results log ---

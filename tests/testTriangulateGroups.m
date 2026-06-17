@@ -5,7 +5,7 @@ function testTriangulateGroups()
 %   association groups, triangulates, and checks the recovered 3D positions match
 %   the originals (and pass the reprojection gate). Also checks that a group with
 %   an inconsistent observation is flagged invalid by the gate. Self-consistent,
-%   so it does not depend on the real extrinsic convention (BUG-5).
+%   so it is independent of the real camera calibration.
 %
 %   Run from the project root:
 %       addpath(genpath(pwd)); testTriangulateGroups
