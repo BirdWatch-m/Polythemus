@@ -275,8 +275,18 @@ fprintf('\nPer-pair reprojection errors (camera 2): ');
 fprintf('%.2fpx  ', reprErrs);
 fprintf('\nMean: %.3fpx\n', mean(reprErrs));
 
-% Average rotation across pairs (meanrot) and translation (column mean).
-R_mean = meanrot(R_all);
+% Average rotation across pairs via quaternion mean (no toolbox required).
+% Build a 4×N matrix of unit quaternions, compute the dominant eigenvector
+% of Q*Q', and convert back to a rotation matrix.
+Q = zeros(4, nCaptured);
+for ki = 1:nCaptured
+    q = rotm2quat(R_all(:, :, ki));   % [w x y z], row
+    Q(:, ki) = q(:);
+end
+[V, ~] = eig(Q * Q');
+q_mean = V(:, end);             % eigenvector for largest eigenvalue
+q_mean = q_mean / norm(q_mean);
+R_mean = quat2rotm(q_mean.');
 t_mean = mean(t_all, 2);
 
 fprintf('Estimated baseline: %.4f m\n', norm(t_mean));
