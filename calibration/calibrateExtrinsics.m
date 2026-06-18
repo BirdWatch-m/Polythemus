@@ -158,9 +158,10 @@ end
 
 fprintf('\n--- Camera geometry summary (world origin = camera 1) ---\n');
 for i = 1:N
+    C = -R{i}' * t{i};              % camera centre in world (cam1) frame
     [az, el] = rotationToAzEl(R{i});
     fprintf('Camera %d:  position [%.3f  %.3f  %.3f] m   azimuth %.1f deg   elevation %.1f deg\n', ...
-            i, t{i}(1), t{i}(2), t{i}(3), az, el);
+            i, C(1), C(2), C(3), az, el);
 end
 fprintf('\nVerify baselines against your physical telemeter measurements.\n');
 
@@ -242,6 +243,7 @@ end
 
 
 function [az, el] = rotationToAzEl(R)
-az = atan2d(R(1,3), R(3,3));
-el = -asind(R(2,3));
+% Camera look direction in world frame = third row of R (world-to-camera premultiply).
+az = atan2d(R(3,1), R(3,3));
+el = -asind(R(3,2));
 end

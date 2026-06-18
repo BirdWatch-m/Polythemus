@@ -319,10 +319,11 @@ fprintf('Run validateCalibration to verify triangulation accuracy.\n');
 
 fprintf('\n--- Camera geometry summary (world origin = camera 1) ---\n');
 for i = 1:N
-    az = atan2d(R{i}(1, 3), R{i}(3, 3));
-    el = -asind(R{i}(2, 3));
+    C   = -R{i}' * t{i};           % camera centre in world (cam1) frame
+    az  = atan2d(R{i}(3, 1), R{i}(3, 3));   % look direction x/z (third row of R)
+    el  = -asind(R{i}(3, 2));               % look direction y (Y-down convention)
     fprintf('Camera %d:  position [%.3f  %.3f  %.3f] m   azimuth %.1f deg   elevation %.1f deg\n', ...
-            i, t{i}(1), t{i}(2), t{i}(3), az, el);
+            i, C(1), C(2), C(3), az, el);
 end
 fprintf('\nVerify baseline against your physical measurement.\n');
 fprintf('Run validateCalibration and check reprojection errors (<5px is good).\n');
