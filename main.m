@@ -83,6 +83,7 @@ while ishandle(fig)
     state.log = logFrame(state.log, blobs, timestamps, syncOk, cfg);
     nConfirmed = sum(strcmp({state.tracks.state}, 'confirmed'));
     state.log.nGroups(end+1)     = numel(groups);
+    state.log.nPoints(end+1)     = numel(valid);
     state.log.nConfirmed(end+1)  = nConfirmed;
     state.log.meanReprErr(end+1) = meanReprErr;
     if nConfirmed > 0
@@ -114,8 +115,8 @@ while ishandle(fig)
 end
 
 if ishandle(fig), close(fig); end
-state.cams = {};
 if frameCount > 0
-    saveSession(state.log, cfg);
+    saveSession(state.log, cfg, state);
 end
+state.cams = {};
 fprintf('Stopped after %d frames.\n', frameCount);

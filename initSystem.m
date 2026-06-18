@@ -225,14 +225,17 @@ state.nextTrackId = 1;
 % 7. INITIALISE SESSION LOG
 % -------------------------------------------------------------------------
 
-state.log.timestamps     = [];   % [1 x nFrames] seconds since tStart
-state.log.syncFlags      = [];   % [1 x nFrames] logical
-state.log.nBlobs         = [];   % [N x nFrames] blob count per camera
-state.log.blobCentroids  = {};   % {nFrames x 1} cell of {1xN} centroid arrays
-state.log.nGroups        = [];   % [1 x nFrames] association groups formed
-state.log.nConfirmed     = [];   % [1 x nFrames] confirmed tracks
-state.log.meanReprErr    = [];   % [1 x nFrames] mean reprojection error (px)
-state.log.trackPositions = {};   % {nFrames x 1} cell of [nTracks x 3] arrays
+state.log.timestamps       = [];   % [1 x nFrames] mean seconds since tStart
+state.log.cameraTimestamps = [];   % [N x nFrames] per-camera seconds since tStart
+state.log.syncFlags        = [];   % [1 x nFrames] logical
+state.log.syncMs           = [];   % [1 x nFrames] inter-camera timestamp spread (ms)
+state.log.nBlobs           = [];   % [N x nFrames] blob count per camera
+state.log.blobCentroids    = {};   % {nFrames x 1} cell of {1xN} centroid arrays
+state.log.nGroups          = [];   % [1 x nFrames] association groups formed
+state.log.nPoints          = [];   % [1 x nFrames] valid triangulated points
+state.log.nConfirmed       = [];   % [1 x nFrames] confirmed tracks
+state.log.meanReprErr      = [];   % [1 x nFrames] mean reprojection error (px)
+state.log.trackPositions   = {};   % {nFrames x 1} cell of [nTracks x 3] arrays
 
 % -------------------------------------------------------------------------
 % 8. REMAINING STATE

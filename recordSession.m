@@ -6,7 +6,8 @@
 %
 %   Output: output/recordings/<timestamp>/cam<i>/frame_NNNNNN.tif  per camera,
 %   plus session.mat (per-frame timestamps, inter-camera sync, cfg, camera
-%   settings) so the recording can be reprocessed and replayed with true timing.
+%   settings, calibration snapshot) and a multiCamParams.mat sidecar so the
+%   recording can be reprocessed and replayed with true timing and geometry.
 %
 %   NOTE: storage is GB-scale (uncompressed TIFF at 1280x720 is ~2.8 MB/frame/camera).
 %   Frames are saved losslessly so no artefacts contaminate background
@@ -66,6 +67,26 @@ for i = 1:N
     if ~isfolder(d), mkdir(d); end
 end
 
+% Snapshot the active calibration into the recording folder. This preserves
+% the geometry used at capture time even if calibration/multiCamParams.mat is
+% overwritten by a later recalibration.
+calibration = [];
+calibrationFile = cfg.calFile;
+if isfile(cfg.calFile)
+    calLoaded = load(cfg.calFile);
+    if isfield(calLoaded, 'multiCamParams')
+        calibration = calLoaded.multiCamParams;
+        copyfile(cfg.calFile, fullfile(sessionDir, 'multiCamParams.mat'));
+    else
+        warning('recordSession:badCalFormat', ...
+                'Calibration file %s does not contain multiCamParams.', cfg.calFile);
+    end
+else
+    warning('recordSession:noCalibration', ...
+            'Calibration file not found: %s. Recording will not include an extrinsics snapshot.', ...
+            cfg.calFile);
+end
+
 % --- Log (preallocated; auto-grows if exceeded, trimmed at end) ---
 estFrames = 10000;
 log.timestamps = nan(N, estFrames);   % seconds since start, per camera
@@ -111,6 +132,8 @@ log.syncMs     = log.syncMs(1:frameCount);
 
 session.cfg         = cfg;
 session.camSettings = camSettings;
+session.calibration = calibration;
+session.calibrationFile = calibrationFile;
 session.nFrames     = frameCount;
 session.log         = log;
 save(fullfile(sessionDir, 'session.mat'), 'session');

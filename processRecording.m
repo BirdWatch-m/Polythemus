@@ -61,11 +61,34 @@ end
 
 % --- Full pipeline: calibration + per-frame dt ---
 if doFull
-    if ~isfile(cfg.calFile)
-        error('processRecording:noCalib', 'Full mode needs %s (run calibrateExtrinsics).', cfg.calFile);
+    sessionCalFile = fullfile(recordingDir, 'multiCamParams.mat');
+    if isfield(session, 'calibration') && ~isempty(session.calibration)
+        multiCamParams = session.calibration;
+        fprintf('Using calibration snapshot embedded in session.mat.\n');
+    elseif isfile(sessionCalFile)
+        calLoaded = load(sessionCalFile);
+        if ~isfield(calLoaded, 'multiCamParams')
+            error('processRecording:badSessionCalib', ...
+                  'Session calibration file is missing multiCamParams: %s', sessionCalFile);
+        end
+        multiCamParams = calLoaded.multiCamParams;
+        fprintf('Using session-local calibration: %s\n', sessionCalFile);
+    elseif isfile(cfg.calFile)
+        warning('processRecording:globalCalibFallback', ...
+                ['No calibration snapshot found in this recording.\n' ...
+                 'Falling back to current global calibration: %s'], cfg.calFile);
+        calLoaded = load(cfg.calFile);
+        if ~isfield(calLoaded, 'multiCamParams')
+            error('processRecording:badGlobalCalib', ...
+                  'Global calibration file is missing multiCamParams: %s', cfg.calFile);
+        end
+        multiCamParams = calLoaded.multiCamParams;
+    else
+        error('processRecording:noCalib', ...
+              ['Full mode needs a calibration snapshot in the recording folder or %s.\n' ...
+               'Run calibrateExtrinsics first.'], cfg.calFile);
     end
-    calLoaded   = load(cfg.calFile);
-    calibration = buildFundamentalMatrices(calLoaded.multiCamParams, N);
+    calibration = buildFundamentalMatrices(multiCamParams, N);
     tracks = struct('id', {}, 'state', {}, 'kf', {}, 'age', {}, 'noDetAge', {}, 'lastPos', {});
     nextId = 1;
 
