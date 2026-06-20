@@ -58,7 +58,19 @@ info.F          = F;
 in1 = mRef(inl, :);
 in2 = mTgt(inl, :);
 
-[relOri, relLoc] = relativeCameraPose(F, intrRef, intrTgt, in1, in2);
+% Cap the inlier set fed to the pose decomposition. relativeCameraPose is O(n^2)
+% in memory, so tens of thousands of inliers OOM; a few thousand well-spread
+% points already determine the pose. F above is fit on ALL pooled matches.
+maxN = 20000;
+if isfield(p, 'maxPoseMatches') && ~isempty(p.maxPoseMatches), maxN = p.maxPoseMatches; end
+if size(in1, 1) > maxN
+    sel  = unique(round(linspace(1, size(in1,1), maxN)));   % deterministic, spread over frames
+    pin1 = in1(sel, :); pin2 = in2(sel, :);
+else
+    pin1 = in1; pin2 = in2;
+end
+
+[relOri, relLoc] = relativeCameraPose(F, intrRef, intrTgt, pin1, pin2);
 R_rel = relOri;                      % premultiply convention — do NOT transpose
 t_rel = -R_rel * relLoc.';
 t_rel = t_rel / norm(t_rel);         % unit; caller applies knownBaseline

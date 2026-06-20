@@ -31,7 +31,7 @@ cfg.fps        = 30;           % frames per second; try 60 if cameras support it
 % and image processing while still forcing the calibrated focus.
 cfg.cameraFocus       = 0;    % manual focus (0 = infinity); MUST match calibrateIntrinsics
 cfg.cameraControlMode = 'focusOnly';
-cfg.autoSettleSeconds = 3;    % let auto-exposure/WB converge before locking them
+cfg.autoSettleSeconds = 5;    % let auto-exposure/WB converge before locking them
 cfg.camProfiles.MY8077 = struct('ExposureControl','auto', ...
     'BacklightCompensation',0, 'Sharpness',0, 'Gamma',300, ...
     'Brightness',0, 'Contrast',64, 'Saturation',128, ...
@@ -108,6 +108,10 @@ cfg.calExtrinsics.ransacNumTrials  = 8000;   % estimateFundamentalMatrix trials
 cfg.calExtrinsics.ransacDistance   = 1.0;    % inlier epipolar distance (px)
 cfg.calExtrinsics.ransacConfidence = 99.99;  % RANSAC confidence (%)
 cfg.calExtrinsics.minPooledInliers = 100;    % abort below this many pooled matches
+cfg.calExtrinsics.maxPoseMatches   = 20000;  % cap inliers fed to relativeCameraPose: its pose
+                                             % decomposition is O(n^2) in memory (tens of thousands
+                                             % of matches OOM); a few thousand fully fix the pose.
+                                             % F is still estimated on ALL pooled matches.
 cfg.calExtrinsics.fixCam2Coplanar  = true;   % true: force cam2 forward (depth) offset to 0.
                                              % The forward offset is unobservable from a distant
                                              % scene (low parallax) and drifts run-to-run; for a
