@@ -298,6 +298,18 @@ t_mean = mean(t_all, 2);
 
 fprintf('Estimated baseline: %.4f m\n', norm(t_mean));
 
+% Apply the same cam2-centre constraints as the SURF path (cfg-controlled): for a
+% level side-by-side rig, pin the vertical and/or forward offset to zero.
+zeroLevel = cfg.calExtrinsics.fixCam2Level;
+zeroDepth = cfg.calExtrinsics.fixCam2Coplanar;
+if zeroLevel || zeroDepth
+    C_before = -R_mean.' * t_mean;
+    [R_mean, t_mean] = constrainCam2Centre(R_mean, t_mean, zeroLevel, zeroDepth);
+    C_after = -R_mean.' * t_mean;
+    fprintf('Cam2 centre constrained (level=%d depth=%d): [%.3f %.3f %.3f] -> [%.3f %.3f %.3f] m\n', ...
+            zeroLevel, zeroDepth, C_before, C_after);
+end
+
 % =========================================================================
 % ASSEMBLE AND SAVE
 % =========================================================================

@@ -26,7 +26,7 @@ addpath(genpath(fileparts(mfilename('fullpath'))));
 % =========================================================================
 % USER INPUTS
 % =========================================================================
-recordingDir = 'output/recordings/20260619_201550';
+recordingDir = 'output/recordings/20260620_162311';
 runMode      = 'full';    % 'detect' | 'full'
 
 % --- Load the recording ---

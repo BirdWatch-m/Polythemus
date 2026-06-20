@@ -18,14 +18,13 @@ function [R_rel, t_rel, info] = relativePoseFromMatches(mRef, mTgt, intrRef, int
 %     p                — cfg.calExtrinsics (ransacNumTrials, ransacDistance,
 %                        ransacConfidence, minPooledInliers, fixCam2Coplanar)
 %
-%   CONSTRAINED MODE (p.fixCam2Coplanar = true)
-%     The target camera's forward (depth) offset along the reference optical axis
-%     is near-unobservable from a distant scene — it carries almost no epipolar
-%     signal, so it drifts run-to-run. With fixCam2Coplanar the recovered rotation
-%     and the lateral baseline direction are KEPT, but the forward component of the
-%     target's optical centre is forced to zero (coplanar with the reference).
-%     Correct for a level side-by-side rig; do not use if the cameras are
-%     genuinely staggered in depth.
+%   CONSTRAINED MODE (p.fixCam2Coplanar and/or p.fixCam2Level)
+%     The recovered rotation is always KEPT; only the target's optical centre is
+%     projected (via constrainCam2Centre). fixCam2Coplanar zeros the forward
+%     (depth) offset — near-unobservable at low parallax, so it otherwise drifts.
+%     fixCam2Level zeros the vertical offset — observable, but asserted zero for a
+%     level rig. Both set => cam2 is a pure lateral baseline [B,0,0]. Correct for a
+%     level side-by-side rig; do not use if the cameras are genuinely staggered.
 %
 %   OUTPUTS
 %     R_rel — 3x3 rotation, target relative to reference (premultiply)
@@ -64,16 +63,10 @@ R_rel = relOri;                      % premultiply convention — do NOT transpo
 t_rel = -R_rel * relLoc.';
 t_rel = t_rel / norm(t_rel);         % unit; caller applies knownBaseline
 
-if isfield(p, 'fixCam2Coplanar') && p.fixCam2Coplanar
-    % Drop the unobservable forward (depth) component of the target's centre.
-    C2 = -R_rel.' * t_rel;           % target optical centre direction (ref frame)
-    C2(3) = 0;                        % zero forward offset -> coplanar with reference
-    if norm(C2) < eps
-        error('relativePoseFromMatches:degenerateConstraint', ...
-              'Lateral baseline vanished under the coplanar constraint.');
-    end
-    C2 = C2 / norm(C2);
-    t_rel = -R_rel * C2;             % stays unit (R orthonormal)
+zeroLevel = isfield(p, 'fixCam2Level')    && p.fixCam2Level;     % vertical (Y)
+zeroDepth = isfield(p, 'fixCam2Coplanar') && p.fixCam2Coplanar;  % forward (Z)
+if zeroLevel || zeroDepth
+    [R_rel, t_rel] = constrainCam2Centre(R_rel, t_rel, zeroLevel, zeroDepth);
     info.constrained = true;
 end
 

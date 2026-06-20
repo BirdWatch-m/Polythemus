@@ -27,13 +27,15 @@ modules grow.
   already equals the premultiply R, so it must NOT be transposed —
   `calibrateExtrinsics` uses `R_rel = relOri` (an earlier `relOri'` was a ~17°
   rotation bug, since corrected).
-- **Extrinsics: cam2 forward offset forced to 0** (`cfg.calExtrinsics.fixCam2Coplanar`).
-  The baseline component along cam1's optical axis is near-unobservable from a
-  distant scene (low parallax: ~1.2° convergence at ~100m), so it drifts ~±1m
-  run-to-run while X/Y stay tight; it is pinned to 0, true to a few cm for the
-  level, ~0-toe-in side-by-side 2-cam rig. VALID only while cameras are
-  near-coplanar — invalid for the planned cross-balcony C3 (genuinely staggered
-  in depth), which needs near-field parallax or a measured offset. Evidence in
+- **Extrinsics: cam2 vertical + forward offsets forced to 0** (`fixCam2Level`,
+  `fixCam2Coplanar`), pinning cam2 to a pure lateral baseline `[B,0,0]`. The
+  forward (depth) offset is near-unobservable at low parallax (~1.2° convergence
+  at ~100m) and drifts ~±1m run-to-run; the vertical offset IS observable
+  (already ~±7cm) but is asserted zero for the level rig. Applied identically to
+  the SURF and checkerboard paths via `constrainCam2Centre` (keeps rotation and
+  `|t|`, zeros the chosen axes). VALID only for a level, near-coplanar rig —
+  invalid for the planned cross-balcony C3 (staggered in height and depth), which
+  needs near-field parallax or a measured offset. Evidence in
   `diagnostics/extrinsicsStability`.
 - **Camera model:** pinhole + radial/tangential distortion from the intrinsics
   objects; image points are undistorted before triangulation.

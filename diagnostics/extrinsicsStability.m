@@ -38,13 +38,15 @@ fprintf('Recording: %s  | pooled %d matches over %d frames\n', recDir, size(m1,1
 h1 = m1(inl,:); h2 = m2(inl,:);
 
 % --- Per-axis scatter, unconstrained vs coplanar-constrained ---
-Cu = runMode(m1, m2, intr1, intr2, setfield(p,'fixCam2Coplanar',false), knownBaseline, nRuns); %#ok<SFLD>
-Cc = runMode(m1, m2, intr1, intr2, setfield(p,'fixCam2Coplanar',true),  knownBaseline, nRuns); %#ok<SFLD>
+pu = p; pu.fixCam2Coplanar = false; pu.fixCam2Level = false;   % zero neither axis
+pc = p; pc.fixCam2Coplanar = true;  pc.fixCam2Level = true;    % zero Y and Z
+Cu = runMode(m1, m2, intr1, intr2, pu, knownBaseline, nRuns);
+Cc = runMode(m1, m2, intr1, intr2, pc, knownBaseline, nRuns);
 
 fprintf('\nCamera-2 optical centre over %d runs (metres, mean +/- std [min..max]):\n', nRuns);
 fprintf('  %-14s %-22s %-22s %-22s\n', 'mode', 'X (lateral)', 'Y (vertical)', 'Z (forward/depth)');
 printAxis('unconstrained', Cu);
-printAxis('coplanar-fixed', Cc);
+printAxis('Y+Z fixed', Cc);
 
 % --- Forward-offset observability: epipolar vs cam2 Z ---
 Rbar = Cu.Rmedoid;

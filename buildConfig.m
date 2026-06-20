@@ -112,6 +112,12 @@ cfg.calExtrinsics.fixCam2Coplanar  = true;   % true: force cam2 forward (depth) 
                                              % The forward offset is unobservable from a distant
                                              % scene (low parallax) and drifts run-to-run; for a
                                              % level side-by-side rig it is ~0 by construction.
+cfg.calExtrinsics.fixCam2Level     = true;   % true: force cam2 vertical (level) offset to 0.
+                                             % Y IS observable (epipolar tilt) so it is already
+                                             % tight (~+/-7cm); this asserts equal camera height.
+                                             % Set false if mounts can differ in height by >few cm.
+                                             % Both flags apply to BOTH extrinsic methods (SURF and
+                                             % checkerboard); together they pin cam2 to [B,0,0].
                                              % See diagnostics/extrinsicsStability.
 
 % --- File paths ---
