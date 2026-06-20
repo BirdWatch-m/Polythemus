@@ -26,8 +26,8 @@ addpath(genpath(fileparts(mfilename('fullpath'))));
 % =========================================================================
 % USER INPUTS
 % =========================================================================
-recordingDir = 'output/recordings/20260617_174115';
-runMode      = 'detect';    % 'detect' | 'full'
+recordingDir = 'output/recordings/20260619_201550';
+runMode      = 'full';    % 'detect' | 'full'
 
 % --- Load the recording ---
 sessionFile = fullfile(recordingDir, 'session.mat');

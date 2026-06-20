@@ -233,10 +233,13 @@ if sum(inliers) < 12
           sum(inliers));
 end
 
-% relativeCameraPose uses postmultiply convention. Apply transpose fix:
-%   R_correct = relOri',  t_correct = -R_correct * relLoc'
+% relativeCameraPose's orientation already IS the world-to-camera premultiply
+% R the pipeline uses — do NOT transpose it. Verified against MATLAB's own
+% cameraPoseToExtrinsics and a synthetic round-trip (tests/testExtrinsicConventions.m).
+% Contrast extrinsics(), whose R is the transpose and must be flipped (see
+% calibrateExtrinsicsCheckerboard). relLoc is cam2's centre direction in cam1's frame.
 [relOri, relLoc] = relativeCameraPose(F, intrRef, intrTgt, inlierRef, inlierTgt);
-R_rel = relOri';
+R_rel = relOri;
 t_rel = -R_rel * relLoc';
 
 end

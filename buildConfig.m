@@ -26,9 +26,11 @@ cfg.fps        = 30;           % frames per second; try 60 if cameras support it
 
 % --- Camera capture settings (applied by applyCameraSettings at every open) ---
 % Focus is MANUAL and shared with calibration so operation matches the intrinsics
-% (focus changes the effective focal length). Exposure/WB are auto-settled to the
-% scene, then locked. Structural locks are per camera model, keyed by cam.Name.
+% (focus changes the effective focal length). Set cameraControlMode to
+% 'focusOnly' to leave the webcam driver in charge of exposure, white balance,
+% and image processing while still forcing the calibrated focus.
 cfg.cameraFocus       = 0;    % manual focus (0 = infinity); MUST match calibrateIntrinsics
+cfg.cameraControlMode = 'focusOnly';
 cfg.autoSettleSeconds = 3;    % let auto-exposure/WB converge before locking them
 cfg.camProfiles.MY8077 = struct('ExposureControl','auto', ...
     'BacklightCompensation',0, 'Sharpness',0, 'Gamma',300, ...

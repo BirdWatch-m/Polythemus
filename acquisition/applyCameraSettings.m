@@ -37,6 +37,20 @@ if nargin < 3
     mode = 'full';
 end
 
+if isfield(cfg, 'resolution') && numel(cfg.resolution) == 2
+    trySet(cam, 'Resolution', sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2)));
+end
+
+if isfield(cfg, 'cameraControlMode') && strcmpi(cfg.cameraControlMode, 'focusOnly')
+    if ~strcmp(mode, 'lock')
+        cam.FocusMode = 'manual';
+        trySet(cam, 'Focus', cfg.cameraFocus);
+    end
+
+    settled = currentCameraState(cam);
+    return;
+end
+
 prof = profileFor(cam.Name, cfg);
 
 if ~strcmp(mode, 'lock')
@@ -101,10 +115,7 @@ if strcmp(mode, 'full') || strcmp(mode, 'lock')
     trySet(cam, 'WhiteBalance', autoWhiteBalance);
 end
 
-settled = struct('Exposure',     tryGet(cam, 'Exposure'), ...
-                 'Gain',         tryGet(cam, 'Gain'), ...
-                 'WhiteBalance', tryGet(cam, 'WhiteBalance'), ...
-                 'Focus',        tryGet(cam, 'Focus'));
+settled = currentCameraState(cam);
 
 end
 
@@ -160,4 +171,12 @@ try
 catch
     v = NaN;
 end
+end
+
+
+function settled = currentCameraState(cam)
+settled = struct('Exposure',     tryGet(cam, 'Exposure'), ...
+                 'Gain',         tryGet(cam, 'Gain'), ...
+                 'WhiteBalance', tryGet(cam, 'WhiteBalance'), ...
+                 'Focus',        tryGet(cam, 'Focus'));
 end

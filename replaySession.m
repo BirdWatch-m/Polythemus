@@ -18,7 +18,7 @@ addpath(genpath(fileparts(mfilename('fullpath'))));
 % =========================================================================
 % USER INPUTS
 % =========================================================================
-recordingDir = 'output/recordings/REPLACE_WITH_SESSION_FOLDER';
+recordingDir = 'output/recordings/20260619_201550';
 playbackFps  = 30;    % fps of output video; set lower to slow down replay
 
 % --- Load session ---

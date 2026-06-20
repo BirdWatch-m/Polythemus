@@ -68,14 +68,16 @@ for g = 1:numel(groups)
         Ps{c}    = P{i};
     end
 
-    [X, reprojErr] = triangulateDLT(obs, Ps);
+    [X, reprojErr, reprojErrs, reprojPts] = triangulateDLT(obs, Ps);
 
-    p           = emptyPoint();
-    p.position  = X(:).';
-    p.reprojErr = reprojErr;
-    p.camIds    = cams;
-    p.groupIdx  = g;
-    p.valid     = reprojErr <= cfg.reprThreshold;
+    p                       = emptyPoint(N);
+    p.position              = X(:).';
+    p.reprojErr             = reprojErr;
+    p.reprojErrByCam(cams)  = reprojErrs;
+    p.reprojectedPoints(cams,:) = reprojPts;
+    p.camIds                = cams;
+    p.groupIdx              = g;
+    p.valid                 = reprojErr <= cfg.reprThreshold;
     points(end+1) = p; %#ok<AGROW>
 end
 
@@ -86,13 +88,17 @@ end
 % LOCAL HELPERS
 % =========================================================================
 
-function p = emptyPoint()
+function p = emptyPoint(N)
+if nargin < 1
+    N = 0;
+end
 p = struct('position', [NaN NaN NaN], 'reprojErr', NaN, ...
+           'reprojErrByCam', nan(1, N), 'reprojectedPoints', nan(N, 2), ...
            'camIds', [], 'groupIdx', 0, 'valid', false);
 end
 
 
-function [X, reprojErr] = triangulateDLT(pts, Ps)
+function [X, reprojErr, errs, reprojPts] = triangulateDLT(pts, Ps)
 % Linear DLT triangulation from K views.
 %   pts — K x 2 undistorted image points (one row per view)
 %   Ps  — 1 x K cell of 3x4 projection matrices
@@ -111,10 +117,12 @@ end
 Xh = V(:, end);
 X  = Xh(1:3) / Xh(4);
 
-errs = zeros(K, 1);
+errs = zeros(1, K);
+reprojPts = zeros(K, 2);
 for c = 1:K
     x       = Ps{c} * [X; 1];
     x       = x(1:2) / x(3);
+    reprojPts(c,:) = x(:).';
     errs(c) = hypot(x(1) - pts(c,1), x(2) - pts(c,2));
 end
 reprojErr = mean(errs);

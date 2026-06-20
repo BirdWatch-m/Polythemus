@@ -40,6 +40,7 @@ clc; close all; clear;
 addpath(genpath(fullfile(fileparts(mfilename('fullpath')), '..')));
 
 cfg = buildConfig();
+measuredDistanceM = [14.970];   % optional: set to a telemeter/tape distance for scale diagnostics
 
 % =========================================================================
 
@@ -52,6 +53,7 @@ end
 
 loaded = load(cfg.calFile);
 cal    = loaded.multiCamParams;
+cal    = buildFundamentalMatrices(cal, N);
 
 % -------------------------------------------------------------------------
 % 1. CAPTURE FRAMES
@@ -105,7 +107,7 @@ group.points = clickedPixels;
 pt = triangulateGroups(group, cal, cfg);
 
 point3D    = pt.position;
-reprErrors = pt.reprojErr;
+reprErrors = pt.reprojErrByCam;
 
 % -------------------------------------------------------------------------
 % 4. REPORT
@@ -116,12 +118,67 @@ distFromCam1 = norm(point3D);
 fprintf('\n--- Validation results ---\n');
 fprintf('Triangulated position: [%.3f  %.3f  %.3f] m\n', point3D);
 fprintf('Estimated distance from camera 1: %.3f m\n', distFromCam1);
+fprintf('Mean reprojection error: %.2fpx\n', pt.reprojErr);
 fprintf('Reprojection errors per camera: ');
 fprintf('%.2fpx  ', reprErrors); fprintf('\n');
+
+if ~isempty(measuredDistanceM)
+    distanceErr = distFromCam1 - measuredDistanceM;
+    scaleFactor = measuredDistanceM / distFromCam1;
+    fprintf('Physical distance: %.3f m\n', measuredDistanceM);
+    fprintf('Distance error: %+.3f m (%+.1f%%)\n', ...
+            distanceErr, 100 * distanceErr / measuredDistanceM);
+    fprintf('Scale factor that would match this point: %.6f\n', scaleFactor);
+end
+
+clickedUndist = zeros(N, 2);
+for i = 1:N
+    clickedUndist(i,:) = undistortPoints(clickedPixels(i,:), cal.intrinsics{i});
+end
+
+fprintf('\n--- Click consistency diagnostics ---\n');
+for i = 1:N
+    delta = pt.reprojectedPoints(i,:) - clickedUndist(i,:);
+    fprintf(['Cam %d: raw click [%.2f %.2f] | undist [%.2f %.2f] | ' ...
+             'reprojected [%.2f %.2f] | correction [%+.2f %+.2f] px | err %.2fpx\n'], ...
+            i, clickedPixels(i,1), clickedPixels(i,2), ...
+            clickedUndist(i,1), clickedUndist(i,2), ...
+            pt.reprojectedPoints(i,1), pt.reprojectedPoints(i,2), ...
+            delta(1), delta(2), reprErrors(i));
+end
+
+if N == 2
+    epiRaw = symmetricEpipolarDistance(clickedPixels(1,:), clickedPixels(2,:), cal.F{1,2});
+    epiUndist = symmetricEpipolarDistance(clickedUndist(1,:), clickedUndist(2,:), cal.F{1,2});
+    fprintf('Symmetric epipolar distance, raw clicks: %.2fpx\n', epiRaw);
+    fprintf('Symmetric epipolar distance, undistorted clicks: %.2fpx\n', epiUndist);
+end
+
 fprintf('\nCompare distance against a physical measurement.\n');
 fprintf('Reprojection errors <3px are good; >5px suggests a rotation issue.\n');
+fprintf('If the correction vectors are comparable to click uncertainty, redo with a sharper/zoomed target.\n');
+fprintf('If they stay tens of pixels on a sharp target, treat the extrinsic rotation as bad.\n');
 
 results.point3D       = point3D;
 results.distFromCam1  = distFromCam1;
 results.reprErrors    = reprErrors;
 results.clickedPixels = clickedPixels;
+results.clickedUndistorted = clickedUndist;
+results.reprojectedPoints  = pt.reprojectedPoints;
+results.reprojectionDeltas = pt.reprojectedPoints - clickedUndist;
+if N == 2
+    results.epipolarDistanceRaw = epiRaw;
+    results.epipolarDistanceUndistorted = epiUndist;
+end
+
+
+function d = symmetricEpipolarDistance(x1, x2, F)
+p1   = [x1(1); x1(2); 1];
+p2   = [x2(1); x2(2); 1];
+Fp1  = F   * p1;
+Ftp2 = F.' * p2;
+num  = abs(p2.' * Fp1);
+dj   = num / hypot(Fp1(1),  Fp1(2));
+di   = num / hypot(Ftp2(1), Ftp2(2));
+d    = 0.5 * (di + dj);
+end

@@ -104,8 +104,13 @@ end
 warning(warnState);
 for i = 1:N
     settled = applyCameraSettings(cams{i}, cfg, 'lock');
-    fprintf('  Cam %d locked: Exposure = %g, Gain = %g\n', ...
-            i, settled.Exposure, settled.Gain);
+    if isfield(cfg, 'cameraControlMode') && strcmpi(cfg.cameraControlMode, 'focusOnly')
+        fprintf('  Cam %d focus-only: Exposure = %g, Gain = %g\n', ...
+                i, settled.Exposure, settled.Gain);
+    else
+        fprintf('  Cam %d locked: Exposure = %g, Gain = %g\n', ...
+                i, settled.Exposure, settled.Gain);
+    end
 end
 
 % =========================================================================
