@@ -37,21 +37,36 @@ if nargin < 3
     mode = 'full';
 end
 
+prof = profileFor(cam.Name, cfg);
+
 if ~strcmp(mode, 'lock')
     % --- 1. Manual focus (must match calibration) ---
     cam.FocusMode = 'manual';
     trySet(cam, 'Focus', cfg.cameraFocus);
 
     % --- 2. Per-model structural locks (skip any property the camera lacks) ---
-    prof = profileFor(cam.Name, cfg);
     fn   = fieldnames(prof);
     for k = 1:numel(fn)
-        trySet(cam, fn{k}, prof.(fn{k}));
+        if isCameraPropertyField(fn{k})
+            trySet(cam, fn{k}, prof.(fn{k}));
+        end
     end
 
-    % --- 3. Set auto modes ---
-    cam.ExposureMode     = 'auto';
-    cam.WhiteBalanceMode = 'auto';
+    % --- 3. Exposure/WB policy ---
+    if strcmpi(profileValue(prof, 'ExposureControl', 'auto'), 'manual')
+        cam.ExposureMode = 'manual';
+        trySet(cam, 'Exposure', profileValue(prof, 'Exposure', tryGet(cam, 'Exposure')));
+        trySet(cam, 'Gain',     profileValue(prof, 'Gain',     tryGet(cam, 'Gain')));
+    else
+        cam.ExposureMode = 'auto';
+    end
+
+    if strcmpi(profileValue(prof, 'WhiteBalanceControl', 'auto'), 'manual')
+        cam.WhiteBalanceMode = 'manual';
+        trySet(cam, 'WhiteBalance', profileValue(prof, 'WhiteBalance', tryGet(cam, 'WhiteBalance')));
+    else
+        cam.WhiteBalanceMode = 'auto';
+    end
 end
 
 if strcmp(mode, 'full')
@@ -60,17 +75,34 @@ if strcmp(mode, 'full')
     warnState = warning('off', 'all');
     t0 = tic;
     while toc(t0) < cfg.autoSettleSeconds
-        try, snapshot(cam); catch, end
+        try
+            snapshot(cam);
+        catch
+        end
     end
     warning(warnState);
 end
 
-% if strcmp(mode, 'full') || strcmp(mode, 'lock')
-%     cam.ExposureMode     = 'manual';   % holds at the converged exposure
-%     cam.WhiteBalanceMode = 'manual';   % holds at the converged white balance
-% end
+if strcmp(mode, 'full') || strcmp(mode, 'lock')
+    if strcmpi(profileValue(prof, 'ExposureControl', 'auto'), 'manual')
+        cam.ExposureMode = 'manual';
+        trySet(cam, 'Exposure', profileValue(prof, 'Exposure', tryGet(cam, 'Exposure')));
+        trySet(cam, 'Gain',     profileValue(prof, 'Gain',     tryGet(cam, 'Gain')));
+    else
+        autoExposure = tryGet(cam, 'Exposure');
+        autoGain     = tryGet(cam, 'Gain');
+        cam.ExposureMode = 'manual';
+        trySet(cam, 'Exposure', autoExposure);
+        trySet(cam, 'Gain',     autoGain);
+    end
+
+    autoWhiteBalance = tryGet(cam, 'WhiteBalance');
+    cam.WhiteBalanceMode = 'manual';
+    trySet(cam, 'WhiteBalance', autoWhiteBalance);
+end
 
 settled = struct('Exposure',     tryGet(cam, 'Exposure'), ...
+                 'Gain',         tryGet(cam, 'Gain'), ...
                  'WhiteBalance', tryGet(cam, 'WhiteBalance'), ...
                  'Focus',        tryGet(cam, 'Focus'));
 
@@ -97,12 +129,35 @@ warning('applyCameraSettings:unknownModel', ...
 end
 
 
+function tf = isCameraPropertyField(fieldName)
+% Profile-only control keys are interpreted here, not sent to the webcam.
+profileOnly = {'ExposureControl', 'WhiteBalanceControl', 'Exposure', 'Gain', 'WhiteBalance'};
+tf = ~any(strcmp(fieldName, profileOnly));
+end
+
+
+function v = profileValue(prof, fieldName, defaultValue)
+if isfield(prof, fieldName)
+    v = prof.(fieldName);
+else
+    v = defaultValue;
+end
+end
+
+
 function trySet(cam, prop, val)
 % Set a property only if this model exposes it (models differ).
-try, cam.(prop) = val; catch, end
+try
+    cam.(prop) = val;
+catch
+end
 end
 
 
 function v = tryGet(cam, prop)
-try, v = cam.(prop); catch, v = NaN; end
+try
+    v = cam.(prop);
+catch
+    v = NaN;
+end
 end

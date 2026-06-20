@@ -95,7 +95,8 @@ end
 warning(warnState);
 for i = 1:N
     settled = applyCameraSettings(state.cams{i}, cfg, 'lock');
-    fprintf('  Cam %d locked: Exposure = %g\n', i, settled.Exposure);
+    fprintf('  Cam %d locked: Exposure = %g, Gain = %g\n', ...
+            i, settled.Exposure, settled.Gain);
 end
 
 fprintf('Opened %d camera(s).\n', N);

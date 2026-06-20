@@ -51,7 +51,8 @@ end
 warning(warnState);
 for i = 1:N
     settled = applyCameraSettings(cams{i}, cfg, 'lock');
-    fprintf('  Cam %d locked: Exposure = %g\n', i, settled.Exposure);
+    fprintf('  Cam %d locked: Exposure = %g, Gain = %g\n', ...
+            i, settled.Exposure, settled.Gain);
 end
 
 % Capture camera settings for reproducibility.

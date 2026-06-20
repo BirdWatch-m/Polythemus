@@ -52,7 +52,7 @@ cfg = buildConfig();
 intrinsicFiles = {'calibration/intrinsics_MY1_720.mat', ...
                   'calibration/intrinsics_LG1_720.mat'};
 
-squareSizeM  = 0.031;    % physical square side length in metres
+squareSizeM  = 0.023;    % physical square side length in metres
 boardSize    = [7 10];        % [] = auto-detect; or e.g. [5 7]
 
 MIN_CAPTURES  = 15;       % minimum stereo pairs before estimation runs
@@ -104,7 +104,8 @@ end
 warning(warnState);
 for i = 1:N
     settled = applyCameraSettings(cams{i}, cfg, 'lock');
-    fprintf('  Cam %d locked: Exposure = %g\n', i, settled.Exposure);
+    fprintf('  Cam %d locked: Exposure = %g, Gain = %g\n', ...
+            i, settled.Exposure, settled.Gain);
 end
 
 % =========================================================================
