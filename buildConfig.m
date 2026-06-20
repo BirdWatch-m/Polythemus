@@ -94,6 +94,26 @@ cfg.trackGate = 5.0;
 % unknown at birth.
 cfg.kalmanInitVelVar = 625;   % (25 m/s)^2, covers the fastest expected birds
 
+% --- Extrinsic calibration (SURF, multi-frame pooled) ---
+% calibrateExtrinsics pools SURF correspondences over a short capture and fits one
+% robust fundamental matrix. A single frame pair is multi-modal on repetitive
+% scenes (façade mismatches form competing RANSAC consensuses); pooling many
+% frames makes the true geometry the dominant consensus. See diagnostics/
+% montecarloExtrinsicsPooled for the frame-count vs stability evidence.
+cfg.calExtrinsics.captureSeconds   = 5;      % seconds of frames to pool per run
+cfg.calExtrinsics.surfMetricThresh = 300;    % detectSURFFeatures MetricThreshold
+cfg.calExtrinsics.matchThreshold   = 50;     % matchFeatures MatchThreshold
+cfg.calExtrinsics.maxRatio         = 0.7;    % matchFeatures MaxRatio
+cfg.calExtrinsics.ransacNumTrials  = 8000;   % estimateFundamentalMatrix trials
+cfg.calExtrinsics.ransacDistance   = 1.0;    % inlier epipolar distance (px)
+cfg.calExtrinsics.ransacConfidence = 99.99;  % RANSAC confidence (%)
+cfg.calExtrinsics.minPooledInliers = 100;    % abort below this many pooled matches
+cfg.calExtrinsics.fixCam2Coplanar  = true;   % true: force cam2 forward (depth) offset to 0.
+                                             % The forward offset is unobservable from a distant
+                                             % scene (low parallax) and drifts run-to-run; for a
+                                             % level side-by-side rig it is ~0 by construction.
+                                             % See diagnostics/extrinsicsStability.
+
 % --- File paths ---
 cfg.display     = true;                               % set false to skip live display (~5ms/frame saved)
 cfg.logDir      = 'output/';

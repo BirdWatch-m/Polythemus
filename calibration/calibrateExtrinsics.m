@@ -1,12 +1,21 @@
-% CALIBRATEEXTRINSICS  Compute inter-camera geometry from a shared scene.
+% CALIBRATEEXTRINSICS  Inter-camera geometry from a shared scene (multi-frame pooled).
 %
 %   Script. Edit USER INPUTS below, then run with F5.
 %
-%   With all cameras mounted in their final positions, captures one
-%   simultaneous frame per camera, matches visual features between
-%   overlapping camera pairs, and recovers the rotation and translation of
-%   every camera relative to camera 1 (which defines the world origin).
-%   Saves the result to cfg.calFile.
+%   With all cameras mounted in their final positions, captures a few seconds of
+%   frames per camera (cfg.calExtrinsics.captureSeconds), POOLS SURF
+%   correspondences across all of them, fits ONE robust fundamental matrix per
+%   overlapping camera pair, and recovers the rotation and translation of every
+%   camera relative to camera 1 (the world origin). Saves the result to
+%   cfg.calFile.
+%
+%   WHY POOLED (not a single snapshot): on a repetitive scene (building façades)
+%   a single frame pair has a high mismatch rate, and RANSAC locks onto one of
+%   several competing consensus sets — so a single-pair estimate is multi-modal
+%   and jumps between a few different poses run-to-run. Genuine correspondences
+%   recur across frames while façade mismatches do not, so pooling makes the
+%   true geometry the dominant consensus and the estimate stable. See
+%   diagnostics/montecarloExtrinsicsPooled for the evidence.
 %
 %   Run this every time cameras are physically moved or re-aimed.
 %   Intrinsic calibration (calibrateIntrinsics) does NOT need to be repeated.
@@ -23,19 +32,19 @@
 %       .R{i}           3x3 rotation matrix — orientation of camera i
 %       .t{i}           3x1 translation vector — position of camera i
 %                       Camera 1: R = eye(3), t = [0;0;0].
+%       .calibDiag      per-pair diagnostics (pooled/inlier counts, epipolar px)
 %
 %   REQUIREMENTS
 %     Cameras must share a textured scene region (buildings, rooftops, tree
 %     lines). Blank sky will not produce enough feature matches. Brighter
-%     daylight improves matching significantly.
+%     daylight improves matching significantly. Validate with epipolarOnRecording
+%     or validateCalibration after running.
 %
 %   ALTERNATIVE
 %     Use calibrateExtrinsicsCheckerboard when the scene lacks texture.
-%     That script uses a held checkerboard and derives metric scale from
-%     squareSizeM directly — no knownBaseline measurement required.
 %
-%   See also: calibrateIntrinsics, calibrateExtrinsicsCheckerboard,
-%             validateCalibration, initSystem
+%   See also: poolPairMatches, relativePoseFromMatches, calibrateIntrinsics,
+%             calibrateExtrinsicsCheckerboard, validateCalibration, initSystem
 
 % =========================================================================
 % USER INPUTS — edit these before running
@@ -81,10 +90,10 @@ for i = 1:N
 end
 
 % -------------------------------------------------------------------------
-% 2. CAPTURE SIMULTANEOUS FRAMES
+% 2. OPEN CAMERAS + LIVE PREVIEW
 % -------------------------------------------------------------------------
 
-fprintf('\nOpening cameras for simultaneous capture...\n');
+fprintf('\nOpening cameras...\n');
 cams = cell(1, N);
 for i = 1:N
     cams{i} = webcam(cfg.camIndices(i));
@@ -92,16 +101,16 @@ for i = 1:N
     applyCameraSettings(cams{i}, cfg);
 end
 
-% Live preview: stream all cameras simultaneously. Close the window to capture.
-fprintf('Live preview — close the window to capture calibration frames.\n');
-fig  = figure('Name', 'Extrinsic calibration — close to capture', 'NumberTitle', 'off');
+fprintf('Live preview — aim cameras at a textured, overlapping scene region.\n');
+fprintf('Close the window to start the %.0f s pooled capture.\n', ...
+        cfg.calExtrinsics.captureSeconds);
+fig  = figure('Name', 'Extrinsic calibration — close to start capture', 'NumberTitle', 'off');
 hImg = gobjects(1, N);
 for i = 1:N
     ax      = subplot(1, N, i);
     hImg(i) = imshow(snapshot(cams{i}), 'Parent', ax);
     title(ax, sprintf('Camera %d', i));
 end
-
 while ishandle(fig)
     try
         for i = 1:N
@@ -113,47 +122,61 @@ while ishandle(fig)
     end
 end
 
-% Capture one frame per camera immediately after the window closes.
-frames = cell(1, N);
-for i = 1:N
-    frames{i} = snapshot(cams{i});
+% -------------------------------------------------------------------------
+% 3. POOLED CAPTURE — grab frames for captureSeconds
+% -------------------------------------------------------------------------
+
+fprintf('\nCapturing %.0f s of frames for pooled estimation...\n', ...
+        cfg.calExtrinsics.captureSeconds);
+seq = cell(1, N);
+for i = 1:N, seq{i} = {}; end
+kf = 0;
+t0 = tic;
+while toc(t0) < cfg.calExtrinsics.captureSeconds
+    kf = kf + 1;
+    for i = 1:N
+        seq{i}{kf} = snapshot(cams{i});
+    end
 end
 cams = {};
+fprintf('Captured %d frames per camera.\n', kf);
 
 % -------------------------------------------------------------------------
-% 3. EXTRACT AND MATCH FEATURES FOR EACH CAMERA PAIR
+% 4. POOLED RELATIVE POSE PER CAMERA PAIR
 % -------------------------------------------------------------------------
-% Camera 1 is the world reference: R{1} = I, t{1} = 0.
-% For every other camera i, we find its pose relative to camera 1 by:
-%   (a) matching SURF features between camera 1 and camera i,
-%   (b) estimating the fundamental matrix from those matches,
-%   (c) recovering R and t from the fundamental matrix + intrinsics.
+% Camera 1 is the world reference: R{1} = I, t{1} = 0. For every other camera
+% i, pool SURF matches against camera i-1 over all captured frames, fit one
+% robust fundamental matrix, and recover the relative pose (premultiply).
 
-R = cell(1, N);
-t = cell(1, N);
-R{1} = eye(3);
-t{1} = zeros(3, 1);
+R = cell(1, N);  t = cell(1, N);
+R{1} = eye(3);   t{1} = zeros(3, 1);
+calibDiag = struct('pair', {}, 'info', {}, 'perFrame', {});
 
 for i = 2:N
     ref = i - 1;
     fprintf('\nLocalising camera %d relative to camera %d...\n', i, ref);
 
-    [R_rel, t_rel] = estimateRelativePose( ...
-        frames{ref}, frames{i}, intrinsics{ref}, intrinsics{i});
+    [mRef, mTgt, perFrame] = poolPairMatches(seq{ref}, seq{i}, cfg.calExtrinsics);
+    fprintf('  Pooled %d matches across %d frames.\n', size(mRef,1), kf);
+
+    [R_rel, t_rel, info] = relativePoseFromMatches( ...
+        mRef, mTgt, intrinsics{ref}, intrinsics{i}, cfg.calExtrinsics);
+    fprintf('  %d inliers (%.0f%%), inlier epipolar median %.2f px.\n', ...
+            info.nInliers, 100*info.inlierFrac, info.epiMedian);
 
     if ~isempty(knownBaseline)
-        t_rel = t_rel * (knownBaseline / norm(t_rel));
+        t_rel = t_rel * knownBaseline;     % t_rel is unit
     end
 
     R{i} = R_rel * R{ref};
     t{i} = R_rel * t{ref} + t_rel;
 
-    fprintf('Camera %d localised. Baseline from cam1: %.3fm\n', ...
-            i, norm(t{i} - t{1}));
+    calibDiag(end+1) = struct('pair', [ref i], 'info', info, 'perFrame', perFrame); %#ok<SAGROW>
+    fprintf('  Camera %d localised. Baseline from cam1: %.3fm\n', i, norm(t{i} - t{1}));
 end
 
 % -------------------------------------------------------------------------
-% 4. PRINT GEOMETRY SUMMARY
+% 5. GEOMETRY SUMMARY
 % -------------------------------------------------------------------------
 
 fprintf('\n--- Camera geometry summary (world origin = camera 1) ---\n');
@@ -166,14 +189,16 @@ end
 fprintf('\nVerify baselines against your physical telemeter measurements.\n');
 
 % -------------------------------------------------------------------------
-% 5. ASSEMBLE AND SAVE
+% 6. ASSEMBLE AND SAVE
 % -------------------------------------------------------------------------
 
 multiCamParams.intrinsics   = intrinsics;
 multiCamParams.R            = R;
 multiCamParams.t            = t;
 multiCamParams.capturedAt   = datestr(now);
-multiCamParams.sourceFrames = frames;
+multiCamParams.calibDiag    = calibDiag;
+multiCamParams.nFramesPooled = kf;
+multiCamParams.sourceFrames = {seq{1}{1}, seq{2}{1}};   % representative pair
 
 if ~isfolder(fileparts(cfg.calFile))
     mkdir(fileparts(cfg.calFile));
@@ -181,69 +206,12 @@ end
 
 save(cfg.calFile, 'multiCamParams');
 fprintf('\nCalibration saved to: %s\n', cfg.calFile);
-fprintf('Run validateCalibration to verify triangulation accuracy.\n');
+fprintf('Validate with epipolarOnRecording (target <1px) or validateCalibration.\n');
 
 
 % =========================================================================
 % LOCAL FUNCTIONS
 % =========================================================================
-
-function [R_rel, t_rel] = estimateRelativePose(frameRef, frameTarget, intrRef, intrTgt)
-% Matches SURF features between two frames and recovers relative camera pose.
-
-gryRef = rgb2gray(frameRef);
-gryTgt = rgb2gray(frameTarget);
-
-ptsRef = detectSURFFeatures(gryRef, 'MetricThreshold', 300);
-ptsTgt = detectSURFFeatures(gryTgt, 'MetricThreshold', 300);
-
-[descRef, ptsRef] = extractFeatures(gryRef, ptsRef);
-[descTgt, ptsTgt] = extractFeatures(gryTgt, ptsTgt);
-
-pairs = matchFeatures(descRef, descTgt, 'MatchThreshold', 50, 'MaxRatio', 0.7);
-
-matchedRef = ptsRef(pairs(:,1));
-matchedTgt = ptsTgt(pairs(:,2));
-
-if size(pairs,1) < 20
-    error('estimateRelativePose:tooFewMatches', ...
-          ['Only %d feature matches found between this camera pair.\n' ...
-           'Ensure cameras share a textured scene region (not blank sky).\n' ...
-           'Try shooting on a day with better light, or adjust camera angles.'], ...
-          size(pairs,1));
-end
-
-fprintf('  %d feature matches found.\n', size(pairs,1));
-
-[F, inliers] = estimateFundamentalMatrix( ...
-    matchedRef.Location, matchedTgt.Location, ...
-    'Method',    'RANSAC', ...
-    'NumTrials', 2000, ...
-    'DistanceThreshold', 1.5);
-
-inlierRef = matchedRef(inliers);
-inlierTgt = matchedTgt(inliers);
-
-fprintf('  %d inliers after RANSAC (%.0f%%).\n', ...
-        sum(inliers), 100*sum(inliers)/numel(inliers));
-
-if sum(inliers) < 12
-    error('estimateRelativePose:tooFewInliers', ...
-          'Only %d inliers remain. Scene may lack enough parallax or texture.', ...
-          sum(inliers));
-end
-
-% relativeCameraPose's orientation already IS the world-to-camera premultiply
-% R the pipeline uses — do NOT transpose it. Verified against MATLAB's own
-% cameraPoseToExtrinsics and a synthetic round-trip (tests/testExtrinsicConventions.m).
-% Contrast extrinsics(), whose R is the transpose and must be flipped (see
-% calibrateExtrinsicsCheckerboard). relLoc is cam2's centre direction in cam1's frame.
-[relOri, relLoc] = relativeCameraPose(F, intrRef, intrTgt, inlierRef, inlierTgt);
-R_rel = relOri;
-t_rel = -R_rel * relLoc';
-
-end
-
 
 function [az, el] = rotationToAzEl(R)
 % Camera look direction in world frame = third row of R (world-to-camera premultiply).

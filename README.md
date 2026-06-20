@@ -18,7 +18,7 @@ Multi-camera bird detection and 3D tracking system for a Bachelor's final projec
 | Session logging | ✅ Complete |
 | Multi-camera detection loop (`main.m`) | ✅ Runs at N=2; ~9 fps (render solved; detect GMM-bound) |
 | Intrinsic calibration | ✅ Complete (MY8077 + C922, 1080p & 720p) |
-| Extrinsic calibration | ⚠️ Run once at N=2, not yet validated |
+| Extrinsic calibration | ✅ Multi-frame pooled SURF; stable + epipolar-validated (<1px) at N=2; cam2 depth offset constrained (low-parallax rig) |
 | Cross-camera association | 🟡 Implemented + unit-tested (not yet wired into main) |
 | Multi-view triangulation | 🟡 Implemented + unit-tested (not yet wired into main) |
 | 3D Kalman tracking | 🟡 Implemented + unit-tested (not yet wired into main) |
@@ -65,7 +65,10 @@ birdtracker/
 │
 ├── calibration/
 │   ├── calibrateIntrinsics.m
-│   ├── calibrateExtrinsics.m
+│   ├── calibrateExtrinsics.m              # multi-frame pooled SURF
+│   ├── calibrateExtrinsicsCheckerboard.m
+│   ├── poolPairMatches.m
+│   ├── relativePoseFromMatches.m
 │   ├── validateCalibration.m
 │   ├── buildFundamentalMatrices.m
 │   └── CALIBRATION_EXPLAINED.txt
@@ -73,10 +76,19 @@ birdtracker/
 ├── config/
 │   └── drawSkyMasks.m
 │
+├── diagnostics/                          # calibration diagnostics — see diagnostics/README.md
+│   ├── epipolarOnRecording.m
+│   ├── extrinsicsStability.m
+│   ├── decomposeStability.m
+│   ├── montecarloExtrinsicsPooled.m
+│   ├── inspectIntrinsics.m
+│   └── ...                               # camera characterisation scripts
+│
 └── tests/
     ├── testAssociateViews.m
     ├── testTriangulateGroups.m
-    └── testUpdateTracks.m
+    ├── testUpdateTracks.m
+    └── testExtrinsicConventions.m
 ```
 
 ## Requirements

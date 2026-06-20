@@ -110,6 +110,14 @@ UPDATE LOG  (changes since this review — newest first)
           (R12 = Rb2'*Rb1, was Rb2*Rb1') and calibrateExtrinsics
           (R_rel = relOri', t_rel = -R_rel*relLoc'). Re-run calibration
           before next outdoor session.
+  [BUG-5] CORRECTION (2026-06-20). The relativeCameraPose half above was WRONG.
+          relativeCameraPose returns a camera-POSE orientation that already
+          equals the premultiply R, so it must NOT be transposed: corrected to
+          R_rel = relOri (relOri' was a ~17deg rotation error). The checkerboard
+          extrinsics() transpose was and remains correct. Verified numerically in
+          tests/testExtrinsicConventions.m. calibrateExtrinsics has since been
+          rewritten to multi-frame pooled estimation (single-pair F->pose is
+          multi-modal at this low parallax); see diagnostics/.
   [CONV-2] PARTIAL. applyBackground magic numbers moved to cfg; others remain.
 
   Work beyond the original review:
@@ -344,6 +352,15 @@ directly), producing R_stored = R_correct'. Fixed:
   calibrateExtrinsicsCheckerboard: R12 = Rb2'*Rb1  (was Rb2*Rb1')
   calibrateExtrinsics:             R_rel = relOri'; t_rel = -R_rel*relLoc'
 The composition R{i} = R_rel * R{ref} is correct; only the inputs were wrong.
+
+CORRECTION (2026-06-20): the relativeCameraPose fix above was itself wrong.
+relativeCameraPose returns a pose orientation = premultiply R already; do NOT
+transpose. Corrected to R_rel = relOri (relOri' was a ~17deg rotation error);
+extrinsics() genuinely is postmultiply so the checkerboard transpose stands.
+Proven in tests/testExtrinsicConventions.m (synthetic round-trip cross-checked
+against MATLAB cameraPoseToExtrinsics). Separately, single-pair SURF F->pose is
+multi-modal at this low parallax, so calibrateExtrinsics was rewritten to pool
+SURF matches over many frames (poolPairMatches + relativePoseFromMatches).
 
 
 ================================================================

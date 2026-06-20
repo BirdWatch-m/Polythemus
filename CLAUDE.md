@@ -41,9 +41,10 @@ association/             associateViews (cross-camera epipolar matching)
 triangulation/           triangulateGroups (DLT multi-view triangulation + reprojection gate)
 tracking/                updateTracks (constant-velocity Kalman, track lifecycle)
 io/                      renderFrame, logFrame, saveSession
-calibration/             calibrateIntrinsics, calibrateExtrinsics, calibrateExtrinsicsCheckerboard, validateCalibration, buildFundamentalMatrices
+calibration/             calibrateIntrinsics, calibrateExtrinsics (multi-frame pooled SURF), calibrateExtrinsicsCheckerboard, poolPairMatches, relativePoseFromMatches, validateCalibration, buildFundamentalMatrices
 config/                  drawSkyMasks
-tests/                   testAssociateViews, testTriangulateGroups, testUpdateTracks (synthetic unit tests)
+diagnostics/             extrinsic + intrinsic calibration diagnostics (see diagnostics/README.md); camera characterisation
+tests/                   testAssociateViews, testTriangulateGroups, testUpdateTracks, testExtrinsicConventions (synthetic unit tests)
 ```
 
 ## Status
@@ -57,7 +58,7 @@ tests/                   testAssociateViews, testTriangulateGroups, testUpdateTr
 | Live display, logging, session save | Done |
 | Live pipeline (main.m) | Full pipeline wired (detect → associate → triangulate → track); ~9 fps detect-limited; saves session log on exit |
 | Intrinsic calibration | Done — MY8077 + C922, at 1080p and 720p |
-| Extrinsic calibration | Convention bug fixed (postmultiply→premultiply in both calibration scripts); re-run checkerboard calibration before next outdoor session |
+| Extrinsic calibration | SURF path rewritten to multi-frame pooled estimation (`poolPairMatches` + `relativePoseFromMatches`); `relativeCameraPose` convention re-fixed (`R_rel = relOri`, not transposed); cam2 forward offset constrained (`cfg.calExtrinsics.fixCam2Coplanar`) to remove the low-parallax depth wobble. Stable + epipolar-validated <1px on a textured scene. Checkerboard path is convention-correct but ill-conditioned for this wide-baseline/distant geometry. Intrinsics excellent (0.17–0.20px). |
 | Cross-camera association | Epipolar matching implemented + unit-tested; wired into main |
 | Multi-view triangulation | DLT + reprojection gate implemented + unit-tested; wired into main |
 | 3D Kalman tracking | Constant-velocity Kalman + lifecycle implemented + unit-tested; wired into main |

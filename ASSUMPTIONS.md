@@ -20,12 +20,21 @@ modules grow.
   `cfg.camProfiles`, keyed by `cam.Name`.
 - **Pose convention: world-to-camera** — `X_cam = R·X_world + t`, so projection
   is `P = K·[R|t]` and `F{i,j} = K_j^-T [t_rel]_x R_rel K_i^-1`.
-  **Verified.** Root cause of the prior convention uncertainty identified and
-  fixed: `extrinsics()` and `relativeCameraPose()` both use postmultiply
-  convention (`X_cam = R'·X_world + t'`), but both calibration scripts were
-  treating their output as premultiply. Fixed in `calibrateExtrinsicsCheckerboard`
-  (`R12 = Rb2'*Rb1`, was `Rb2*Rb1'`) and `calibrateExtrinsics` (`R_rel = relOri'`,
-  `t_rel = -R_rel*relLoc'`). Re-run calibration before the next outdoor session.
+  **Verified numerically** (`tests/testExtrinsicConventions.m`). The two toolbox
+  helpers do NOT share a convention: `extrinsics()` returns a postmultiply R, so
+  premultiply needs a transpose — `calibrateExtrinsicsCheckerboard` uses
+  `R12 = Rb2'*Rb1`. `relativeCameraPose()` returns a camera-POSE orientation that
+  already equals the premultiply R, so it must NOT be transposed —
+  `calibrateExtrinsics` uses `R_rel = relOri` (an earlier `relOri'` was a ~17°
+  rotation bug, since corrected).
+- **Extrinsics: cam2 forward offset forced to 0** (`cfg.calExtrinsics.fixCam2Coplanar`).
+  The baseline component along cam1's optical axis is near-unobservable from a
+  distant scene (low parallax: ~1.2° convergence at ~100m), so it drifts ~±1m
+  run-to-run while X/Y stay tight; it is pinned to 0, true to a few cm for the
+  level, ~0-toe-in side-by-side 2-cam rig. VALID only while cameras are
+  near-coplanar — invalid for the planned cross-balcony C3 (genuinely staggered
+  in depth), which needs near-field parallax or a measured offset. Evidence in
+  `diagnostics/extrinsicsStability`.
 - **Camera model:** pinhole + radial/tangential distortion from the intrinsics
   objects; image points are undistorted before triangulation.
 - **Synchronous frames:** all cameras' detections in a frame are treated as

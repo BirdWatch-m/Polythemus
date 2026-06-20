@@ -89,3 +89,74 @@ watch false negatives vs false positives at range.
 many more false positives (26-39 blobs on clouds/foliage). The GMM AND suppresses
 those. Re-evaluate once the association/tracking layer exists to reject them
 downstream — only then can median-only vs GMM be judged fairly.
+
+---
+
+## Depth-uncertainty vs range figure — `diagnostics/depthUncertainty.m`  *(thesis figure; spec'd 2026-06-20)*
+
+**Why.** Triangulation at this rig is low-parallax: `decomposeStability` measured a
+**1.22° convergence angle** at the scene's ~34 baseline-lengths median depth
+(~102 m at a 3.5 m baseline). That makes *metric depth* intrinsically imprecise —
+independent of calibration quality — because depth error scales as range² and
+inversely with baseline. This figure quantifies that limit, justifies the
+wider airport baselines proposed in the paper, and gives a principled value for
+`cfg.kalmanMeasNoise` (whose comment currently assumes an 8 m baseline, ~2.3×
+optimistic for the real 3.5 m). Half the paper is experimental; this is the
+figure that turns "depth is poor at range" into numbers.
+
+**Core model (closed form, for the curves + intuition).**
+- Per-camera centroid localisation error `σ_px` (sweep ~0.5–2 px; a small distant
+  bird blob is worse than a checkerboard corner).
+- Angular ray error `σ_θ ≈ σ_px / f`, `f ≈ 950 px` at 720p (from intrinsics).
+- Parallax angle at range Z, baseline B: `θ ≈ B / Z` (small-angle, frontal).
+- **Depth (along-range) σ:** `σ_Z ≈ (Z² / (B · f)) · σ_px`  ⇒ `σ_Z / Z ≈ σ_px /(f·θ)`.
+- **Lateral (cross-range) σ:** `σ_lat ≈ (Z / f) · σ_px` — grows only linearly, so
+  the uncertainty ellipsoid is cigar-shaped along the line of sight. Report both;
+  the anisotropy is the point (and motivates a non-isotropic, range-dependent
+  Kalman R — see ASSUMPTIONS.md, currently isotropic constant by choice).
+
+**Rigorous version (validate the closed form).**
+- Build the linearised triangulation covariance: stack the per-camera projection
+  Jacobians `J_i = ∂(proj)/∂X` at the true point, form the information matrix
+  `Σ_X = (Σ_i J_iᵀ J_i / σ_px²)^{-1}`, report its eigenvalues/vectors (major axis ≈
+  depth direction). Generalises cleanly to N≥3 cameras (just sum more J terms).
+- **Monte-Carlo cross-check:** project a known point into each camera with the
+  real calibration, add `N(0, σ_px²)` pixel noise, triangulate via the pipeline's
+  own `triangulateGroups`, repeat ~1e4×, compare empirical scatter to `Σ_X`.
+  They should match — this also exercises the real triangulation path, not a
+  textbook stand-in.
+
+**Configurations to plot.**
+- Baselines: **3.5 m** (current test rig), **2.25 m** and **6.5 m** (planned
+  intra-/inter-balcony, per CLAUDE.md), plus 1–2 airport-scale values (e.g.
+  20 m, 50 m) for the proposal section.
+- N: the N=2 pair vs an N=3 layout (show the third camera's differently-oriented
+  baseline shrinks the depth axis — the real argument for 3 cameras beyond
+  disambiguation).
+- Range axis: 20–150 m operating band shaded; extend to ~500 m for airport.
+
+**Deliverables.**
+1. `σ_Z` (m) vs range, one curve per baseline, operating band shaded (log-y ok).
+2. `σ_Z / Z` (%) vs range — the "how good is a distance estimate" plot.
+3. Top-down error-ellipse cartoon at 50/100/150 m showing the cigar shape (cross
+   `σ_lat` vs along `σ_Z`).
+4. Small table: `σ_Z` at 50/100/150 m per baseline, and the `kalmanMeasNoise`
+   (m²) each implies at a representative range.
+- Use the real intrinsics for `f`; take geometry (convergence) from the actual
+  calibration where possible rather than assuming frontal-parallel.
+
+**Follow-on once plotted:** set `cfg.kalmanMeasNoise` from `σ_Z` at a representative
+range (and fix its 8 m-baseline comment), and reconsider whether the isotropic
+measurement-noise assumption is costing tracking accuracy at long range.
+
+---
+
+## Retire `salvageCalibration.m`  *(cleanup; flagged 2026-06-20)*
+
+It still carries the original convention bug twice (`R_k = relOri'`, and the
+file-load transpose `R_fixed = old.R{2}'`), and its premise — transpose whatever
+R sits in the file — is only valid if that R came from the broken SURF path, so
+it is unsound in general. The proper path is now `calibrateExtrinsics` (pooled,
+convention-correct) or `calibrateExtrinsicsCheckerboard`. Delete `salvageCalibration.m`
+(and the stale `calibration/multiCamParams_salvaged.mat`) once you've confirmed
+you no longer depend on either.
