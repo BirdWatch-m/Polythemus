@@ -1,68 +1,55 @@
-% REPLAYSESSION  Write annotated video(s) from a recorded session.
+% REPLAYSESSIONTUNED  Write annotated videos for the tuned-parameter window.
 %
-%   Script. Set recordingDir below, then run with F5.
-%   Reads raw frames saved by recordSession and blob/track results from
-%   results.mat (written by processRecording), and writes one annotated video
-%   per camera to the recording directory.
+%   Companion to processRecordingTuned. Reads results_tuned.mat and writes
+%   cam1_replay_tuned.avi / cam2_replay_tuned.avi for the processed window.
 %
 %   Set frameRange = [firstFrame lastFrame] to export the same short absolute
-%   frame window as replayTracks3D. Leave [] to export the whole results window.
+%   frame window as replayTracks3D. Leave [] to export the whole tuned window.
 %
 %   Overlay convention:
 %     red outline       - every detected blob
 %     coloured outline  - confirmed 3D track projected into this camera
 %     ID label          - stable track ID from results.trackIds
 %
-%   See also: recordSession, processRecording, replayTracks3D
+%   See also: replaySession, processRecordingTuned, replayTracks3D
 
 clc; close all; clear;
-
 addpath(genpath(fileparts(mfilename('fullpath'))));
 
 % =========================================================================
 % USER INPUTS
 % =========================================================================
-recordingDir = 'output/recordings/20260621_134509';
-playbackFps  = 30;    % fps of output video; match replayTracks3D for side-by-side use
+recordingDir = 'output/recordings/20260620_162311';
+playbackFps  = 30;
 frameRange   = [];    % [] or absolute recording frames [firstFrame lastFrame]
 
 blobMarkerRadius  = 7;     % red outline around every blob
 trackMarkerRadius = 12;    % coloured outline around confirmed tracks
 trackSnapGatePx   = 14;    % snap projected track to nearest blob inside this distance
 
-% --- Load session ---
-sessionFile = fullfile(recordingDir, 'session.mat');
-if ~isfile(sessionFile)
-    error('replaySession:noSession', 'session.mat not found in %s', recordingDir);
-end
-loaded  = load(sessionFile);
+% =========================================================================
+% LOAD SESSION + TUNED RESULTS
+% =========================================================================
+loaded  = load(fullfile(recordingDir, 'session.mat'));
 session = loaded.session;
 cfg     = session.cfg;
 N       = cfg.N;
-nFrames = session.nFrames;
 
-% --- Load processing results if available ---
-resultsFile = fullfile(recordingDir, 'results.mat');
-hasResults  = isfile(resultsFile);
-if hasResults
-    res = load(resultsFile);
-    res = res.results;
-    hasCentroids   = isfield(res, 'blobCentroids');
-    hasFullResults = isfield(res, 'nConfirmed') && isfield(res, 'trackPositions');
-    fprintf('Loaded results.mat (detect-only: %d | full pipeline: %d).\n', ...
-            hasResults, hasFullResults);
-else
-    res = struct();
-    hasCentroids   = false;
-    hasFullResults = false;
-    fprintf('No results.mat found - run processRecording first for detection/track overlay.\n');
+resultsFile = fullfile(recordingDir, 'results_tuned.mat');
+if ~isfile(resultsFile)
+    error('replaySessionTuned:noResults', ...
+          'results_tuned.mat not found. Run processRecordingTuned first.');
 end
+res = load(resultsFile);
+res = res.results;
 
-[frameIndices, resultRows] = resolveReplayWindow(res, nFrames, hasResults, frameRange);
-nReplay = numel(frameIndices);
-if nReplay == 0
-    error('replaySession:emptyWindow', 'No frames match frameRange.');
+[frameIndices, resultRows] = resolveReplayWindow(res, frameRange);
+nWindow = numel(frameIndices);
+if nWindow == 0
+    error('replaySessionTuned:emptyWindow', 'No frames match frameRange.');
 end
+hasCentroids    = isfield(res, 'blobCentroids');
+hasFullResults  = isfield(res, 'nConfirmed') && isfield(res, 'trackPositions');
 
 trackOverlay = false;
 trackStyles  = struct('ids', [], 'colors', zeros(0, 3));
@@ -73,12 +60,17 @@ if hasFullResults
         trackStyles = buildTrackStyles(res.trackIds(resultRows));
         trackOverlay = true;
     catch ME
-        warning('replaySession:trackOverlayDisabled', ...
+        warning('replaySessionTuned:trackOverlayDisabled', ...
                 'Track projection overlay disabled: %s', ME.message);
     end
 end
 
-% --- Write one video per camera ---
+fprintf('Window: frames %d - %d  (%d frames)\n', frameIndices(1), frameIndices(end), nWindow);
+fprintf('Results: detect-only=%d  full-pipeline=%d\n', hasCentroids, hasFullResults);
+
+% =========================================================================
+% WRITE ONE VIDEO PER CAMERA
+% =========================================================================
 for i = 1:N
 
     videoOut = replayVideoName(recordingDir, i, frameRange);
@@ -87,34 +79,32 @@ for i = 1:N
     if isprop(vw, 'Quality'), vw.Quality = 95; end
     open(vw);
 
-    fprintf('Writing cam %d / %d  (%d frames) -> %s\n', i, N, nReplay, videoOut);
+    fprintf('Writing cam %d  (%d frames) -> %s\n', i, nWindow, videoOut);
 
-    for r = 1:nReplay
+    for r = 1:nWindow
         k  = frameIndices(r);
         ri = resultRows(r);
 
-        frame = imread(fullfile(recordingDir, sprintf('cam%d', i), ...
-                                sprintf('frame_%06d.tif', k)));
+        frame = imread(fullfile(recordingDir, sprintf('cam%d', i), sprintf('frame_%06d.tif', k)));
 
         t      = cameraFrameTime(session, i, k);
         syncMs = frameSyncMs(session, k);
 
         if hasFullResults
-            infoStr = sprintf('cam%d | f%d | t=%.2fs | sync %.1fms | blobs:%d | confirmed:%d | reprErr:%.1fpx', ...
+            infoStr = sprintf('cam%d | f%d | t=%.2fs | sync %.1fms | blobs:%d | confirmed:%d | reprErr:%.1fpx [TUNED]', ...
                               i, k, t, syncMs, res.nBlobs(i,ri), res.nConfirmed(ri), res.meanReprErr(ri));
-        elseif hasResults
-            infoStr = sprintf('cam%d | f%d | t=%.2fs | sync %.1fms | blobs:%d', ...
-                              i, k, t, syncMs, res.nBlobs(i, ri));
+        elseif hasCentroids
+            infoStr = sprintf('cam%d | f%d | t=%.2fs | sync %.1fms | blobs:%d [TUNED]', ...
+                              i, k, t, syncMs, res.nBlobs(i,ri));
         else
-            infoStr = sprintf('cam%d | f%d | t=%.2fs | sync %.1fms', i, k, t, syncMs);
+            infoStr = sprintf('cam%d | f%d | t=%.2fs | sync %.1fms [TUNED]', i, k, t, syncMs);
         end
 
-        % Convert grayscale to RGB so overlays render in colour.
         annotated = repmat(frame, [1 1 3]);
 
         annotated = insertText(annotated, [10 10], infoStr, ...
-                               'FontSize', 14, 'BoxColor', 'black', ...
-                               'TextColor', 'white', 'BoxOpacity', 0.6);
+                               'FontSize', 12, 'BoxColor', 'black', ...
+                               'TextColor', 'yellow', 'BoxOpacity', 0.6);
 
         if hasCentroids
             centroids = res.blobCentroids{ri}{i};
@@ -132,7 +122,7 @@ for i = 1:N
         writeVideo(vw, annotated);
 
         if mod(r, 100) == 0
-            fprintf('  cam %d: %d / %d frames\n', i, r, nReplay);
+            fprintf('  cam %d: %d / %d frames\n', i, r, nWindow);
         end
     end
 
@@ -145,19 +135,17 @@ fprintf('Done.\n');
 % =========================================================================
 % LOCAL HELPERS
 % =========================================================================
-function [frameIndices, resultRows] = resolveReplayWindow(res, nSessionFrames, hasResults, frameRange)
-if hasResults && isfield(res, 'frameIndex')
+function [frameIndices, resultRows] = resolveReplayWindow(res, frameRange)
+if isfield(res, 'frameIndex')
     allFrameIndices = res.frameIndex(:).';
-elseif hasResults && isfield(res, 'nBlobs')
-    allFrameIndices = 1:size(res.nBlobs, 2);
 else
-    allFrameIndices = 1:nSessionFrames;
+    allFrameIndices = 1:numel(res.blobCentroids);
 end
 if isempty(frameRange)
     keep = true(size(allFrameIndices));
 else
     if numel(frameRange) ~= 2 || frameRange(1) > frameRange(2)
-        error('replaySession:badFrameRange', 'frameRange must be [] or [firstFrame lastFrame].');
+        error('replaySessionTuned:badFrameRange', 'frameRange must be [] or [firstFrame lastFrame].');
     end
     keep = allFrameIndices >= frameRange(1) & allFrameIndices <= frameRange(2);
 end
@@ -167,9 +155,9 @@ end
 
 function name = replayVideoName(recordingDir, camIdx, frameRange)
 if isempty(frameRange)
-    name = fullfile(recordingDir, sprintf('cam%d_replay.avi', camIdx));
+    name = fullfile(recordingDir, sprintf('cam%d_replay_tuned.avi', camIdx));
 else
-    name = fullfile(recordingDir, sprintf('cam%d_replay_%06d_%06d.avi', ...
+    name = fullfile(recordingDir, sprintf('cam%d_replay_tuned_%06d_%06d.avi', ...
                     camIdx, frameRange(1), frameRange(2)));
 end
 end
@@ -291,11 +279,11 @@ for k = 1:n
     res.trackIds{k} = (1:nRows).';
 end
 if maxRows > 1
-    warning('replaySession:legacyTrackIds', ...
+    warning('replaySessionTuned:legacyTrackIds', ...
             ['%s has no results.trackIds. Using per-frame row numbers; ' ...
-             're-run processRecording for stable track colours and labels.'], resultsFile);
+             're-run processRecordingTuned for stable track colours and labels.'], resultsFile);
 else
-    warning('replaySession:legacyTrackIds', ...
+    warning('replaySessionTuned:legacyTrackIds', ...
             '%s has no results.trackIds. Using single-track fallback ID 1.', resultsFile);
 end
 end

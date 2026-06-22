@@ -59,7 +59,7 @@ cfg = buildConfig();
 intrinsicFiles = {'calibration/intrinsics_MY1_720.mat', ...
                   'calibration/intrinsics_LG1_720.mat'};
 
-knownBaseline = 3.5;   % physical distance between camera optical centres, metres
+knownBaseline = 1.2;   % physical distance between camera optical centres, metres
                         % set to [] to save unit-scale translation
 
 % =========================================================================

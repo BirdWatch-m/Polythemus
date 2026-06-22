@@ -1,7 +1,7 @@
-function groups = associateViews(blobs, calibration, cfg)
+function [groups, counts] = associateViews(blobs, calibration, cfg)
 % ASSOCIATEVIEWS  Group per-camera blobs that view the same 3D point.
 %
-%   groups = associateViews(blobs, calibration, cfg)
+%   [groups, counts] = associateViews(blobs, calibration, cfg)
 %
 %   Matches blobs across cameras using the epipolar constraint: a blob in
 %   camera i and a blob in camera j can correspond to the same world point only
@@ -25,7 +25,7 @@ function groups = associateViews(blobs, calibration, cfg)
 %                   that x_j' * F{i,j} * x_i = 0 for corresponding points
 %     cfg         — struct from buildConfig (uses cfg.N, cfg.epiThreshold)
 %
-%   OUTPUT
+%   OUTPUTS
 %     groups — 1xG struct array, one entry per associated point, with fields:
 %       .blobIdx — [1xN] blob index in each camera (0 where not observed)
 %       .points  — [Nx2] centroid in each camera (NaN row where not observed)
@@ -33,6 +33,8 @@ function groups = associateViews(blobs, calibration, cfg)
 %       .nViews  — K = number of observing cameras (>=1)
 %     nViews >= 2 is triangulatable; nViews == 1 is a partial observation kept
 %     for the tracker.
+%     counts — struct: candidatePairs, rejectedEpi, matchedPairs,
+%              singletonGroups, multiViewGroups
 %
 %   LIMITATION
 %     With N >= 3, inconsistent pairwise matches could in principle place two
@@ -45,6 +47,9 @@ function groups = associateViews(blobs, calibration, cfg)
 N          = cfg.N;
 nBlobs     = cellfun(@numel, blobs);
 totalBlobs = sum(nBlobs);
+
+counts = struct('candidatePairs', 0, 'rejectedEpi', 0, 'matchedPairs', 0, ...
+                'singletonGroups', 0, 'multiViewGroups', 0);
 
 if totalBlobs == 0
     groups = repmat(emptyGroup(N), 1, 0);
@@ -75,9 +80,15 @@ for i = 1:N
             end
         end
 
+        nCandidates = nBlobs(i) * nBlobs(j);
+        nFinite     = sum(isfinite(C(:)));
+        counts.candidatePairs = counts.candidatePairs + nCandidates;
+        counts.rejectedEpi    = counts.rejectedEpi    + (nCandidates - nFinite);
+
         % Hungarian one-to-one match; a pair is taken only if cheaper than
         % leaving both unmatched (costUnmatched = epiThreshold).
         M = matchpairs(C, cfg.epiThreshold);
+        counts.matchedPairs = counts.matchedPairs + size(M, 1);
         for m = 1:size(M, 1)
             parent = unite(parent, offset(i) + M(m,1), offset(j) + M(m,2));
         end
@@ -99,6 +110,12 @@ for g = 1:numel(roots)
     end
     groups(g).camIds = find(groups(g).blobIdx > 0);
     groups(g).nViews = numel(groups(g).camIds);
+end
+
+if ~isempty(groups)
+    nViews_all = [groups.nViews];
+    counts.singletonGroups = sum(nViews_all == 1);
+    counts.multiViewGroups = sum(nViews_all >= 2);
 end
 
 end

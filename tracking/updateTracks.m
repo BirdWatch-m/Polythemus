@@ -1,7 +1,7 @@
-function [tracks, nextTrackId] = updateTracks(tracks, nextTrackId, measurements, dt, cfg)
+function [tracks, nextTrackId, counts] = updateTracks(tracks, nextTrackId, measurements, dt, cfg)
 % UPDATETRACKS  Advance the 3D Kalman track set by one frame.
 %
-%   [tracks, nextTrackId] = updateTracks(tracks, nextTrackId, measurements, dt, cfg)
+%   [tracks, nextTrackId, counts] = updateTracks(tracks, nextTrackId, measurements, dt, cfg)
 %
 %   Maintains a set of constant-velocity Kalman tracks over time. Each frame:
 %     1. Predict every track forward by dt.
@@ -18,7 +18,7 @@ function [tracks, nextTrackId] = updateTracks(tracks, nextTrackId, measurements,
 %   DESIGN CHOICES (first implementation; see TODO for refinements)
 %     - Hand-rolled constant-velocity Kalman (state [px py pz vx vy vz]),
 %       measurement = 3D position. Transparent and unit-testable.
-%     - Euclidean association gate (cfg.trackGate), not Mahalanobis.
+%     - Mahalanobis association gate (cfg.trackGate = chi-squared threshold).
 %     - Confirmation on CUMULATIVE matched frames, not strictly consecutive.
 %
 %   INPUTS
@@ -33,11 +33,14 @@ function [tracks, nextTrackId] = updateTracks(tracks, nextTrackId, measurements,
 %   OUTPUTS
 %     tracks       — updated track struct array
 %     nextTrackId  — advanced past any newly spawned ids
+%     counts       — struct: measMatched, newSpawned, tentativeDropped, coastedOut
 %
 %   See also: triangulateGroups, initSystem
 
 nTracks = numel(tracks);
 nMeas   = size(measurements, 1);
+
+counts = struct('measMatched', 0, 'newSpawned', 0, 'tentativeDropped', 0, 'coastedOut', 0);
 
 % --- 1. Predict every track forward by dt ---
 for t = 1:nTracks
@@ -49,18 +52,22 @@ matchedTrack = false(1, nTracks);
 assignedMeas = false(1, nMeas);
 
 if nTracks > 0 && nMeas > 0
-    C = inf(nTracks, nMeas);
+    C  = inf(nTracks, nMeas);
+    R3 = cfg.kalmanMeasNoise * eye(3);
     for t = 1:nTracks
-        pred = tracks(t).kf.x(1:3).';
+        S    = tracks(t).kf.P(1:3,1:3) + R3;  % innovation covariance (3x3)
+        Sinv = S \ eye(3);                      % precompute inverse once per track
         for m = 1:nMeas
-            d = norm(pred - measurements(m,:));
-            if d <= cfg.trackGate
-                C(t,m) = d;
+            y    = measurements(m,:).' - tracks(t).kf.x(1:3);
+            d_sq = y.' * Sinv * y;              % Mahalanobis distance squared
+            if d_sq <= cfg.trackGate
+                C(t,m) = d_sq;
             end
         end
     end
 
     A = matchpairs(C, cfg.trackGate);
+    counts.measMatched = size(A, 1);
     for k = 1:size(A,1)
         t = A(k,1);  m = A(k,2);
         tracks(t).kf       = kfUpdate(tracks(t).kf, measurements(m,:).', cfg);
@@ -83,10 +90,12 @@ for t = 1:nTracks
     tracks(t).lastPos  = tracks(t).kf.x(1:3).';   % report the coasted (predicted) position
     if strcmp(tracks(t).state, 'tentative')
         keep(t) = false;                          % unconfirmed miss -> drop immediately
+        counts.tentativeDropped = counts.tentativeDropped + 1;
     else
         tracks(t).state = 'coasting';
         if tracks(t).noDetAge > cfg.maxCoastFrames
             keep(t) = false;                      % coasted too long -> drop
+            counts.coastedOut = counts.coastedOut + 1;
         end
     end
 end
@@ -97,6 +106,7 @@ for m = 1:nMeas
     if assignedMeas(m), continue; end
     tracks(end+1) = spawnTrack(nextTrackId, measurements(m,:), cfg); %#ok<AGROW>
     nextTrackId   = nextTrackId + 1;
+    counts.newSpawned = counts.newSpawned + 1;
 end
 
 end

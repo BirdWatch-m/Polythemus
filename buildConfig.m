@@ -42,33 +42,36 @@ cfg.camProfiles.C922   = struct('ExposureControl','auto', ...
 
 % --- Ring buffer ---
 % Rolling per-camera frame store. New frames overwrite the oldest.
-cfg.ringBufLen   = 90;   % total frames stored (~3s at 30fps)
-cfg.medianBufLen = 60;   % frames used for temporal median background (~2s)
+cfg.ringBufLen   = 30;   % total frames stored (~3s at 30fps)
+cfg.medianBufLen = 30;   % frames used for temporal median background (~2s)
 
 % --- Background model ---
 cfg.bgUpdateInterval  = 15;  % recompute the median background every N frames (per camera)
-cfg.medianFgThreshold = 35;  % |frame - median| above this (0-255) marks a pixel foreground
-cfg.bgMedianStride    = 3;   % subsample the ring buffer by this stride when taking the median (speed)
+cfg.medianFgThreshold = 20;  % |frame - median| above this (0-255) marks a pixel foreground
+cfg.bgMedianStride    = 2;   % subsample the ring buffer by this stride when taking the median (speed)
 cfg.useGMM            = true; % AND the GMM model with the median model; false = median-only (faster)
 
 % --- Morphology (foreground mask cleanup before blob extraction) ---
-% WARNING: imopen erodes a morphKernelRadius-pixel border, so it can erase
-% small distant targets (a 3x3px bird vs minBlobArea=9). Evaluate whether this
-% costs real detections at range before trusting it.
-cfg.useMorphology     = true; % open+close the mask; false = skip entirely
-cfg.morphKernelRadius = 2;    % disk radius (px) for open/close
+% Disabled: imopen with any radius erodes a morphKernelRadius-pixel border.
+% A bird at 50-100m covers only 4px² at thr=35 — erosion kills it before gating.
+% Validated offline on 20260620_162311 (0.59px reproj error, confirmed stereo track).
+cfg.useMorphology     = false; % open+close the mask; false = skip entirely
+cfg.morphKernelRadius = 2;     % unused while useMorphology=false; kept for reference
 cfg.morphStrel        = strel('disk', cfg.morphKernelRadius);  % built once; rebuild if radius changes
 
 % --- Detection thresholds ---
 % Epipolar: max distance (px) from predicted epipolar line to accept a cross-camera match.
-cfg.epiThreshold  = 3.0;   % increase to 5.0 if valid birds are being rejected
+cfg.epiThreshold  = 20.0;  % permissive: bad extrinsics can push true matches 10-20px off the line
 
 % Reprojection: max error (px) between triangulated point and original detection.
-cfg.reprThreshold = 3.0;   % increase if few points survive triangulation
+cfg.reprThreshold = 15.0;  % matches epiThreshold tolerance; bad extrinsics inflate reprojection error
 
 % Blob area: filters out sensor noise (too small) and clouds/buildings (too large).
-cfg.minBlobArea = 9;       % px^2 — ~3x3px, smallest detectable bird at max range
-cfg.maxBlobArea = 2000;    % px^2 — adjust upward for large close-range seagulls
+% Lower bound reduced from 9 to 4: a pigeon at 50-100m produces a 4px² blob at
+% thr=35. With morphology disabled the noise floor at thr=35 is ~1-2 isolated
+% pixels, which are below 4px² and self-filter. Validated 20260620_162311.
+cfg.minBlobArea = 4;       % px^2 — validated minimum for small/distant birds
+cfg.maxBlobArea = 6000;    % px^2 — covers drones with visible frame/rotors at 30-80m
 
 % Aspect ratio: major/minor axis of blob ellipse. Rejects compact noise and diffuse clouds.
 cfg.maxAspect = 6.0;
@@ -77,18 +80,25 @@ cfg.maxAspect = 6.0;
 cfg.maxSyncError = 0.033;  % one frame at 30fps; does not discard frames, only logs flag
 
 % --- Tracking ---
-cfg.maxCoastFrames   = 5;   % consecutive missed frames before a track is deleted
-cfg.minConfirmFrames = 3;   % consecutive matched frames before a track is reported
+cfg.maxCoastFrames   = 30;  % 1s at 30fps; bridges longer occlusion/matching gaps
+cfg.minConfirmFrames = 2;   % consecutive matched frames before a track is confirmed
+cfg.minTrackAge      = 30;   % min cumulative matched frames before a confirmed track appears in results
 
 % Kalman process noise: how much random acceleration to assume (m/s^2)^2.
-cfg.kalmanProcNoise = 1.0;   % increase for erratic species (swallows); decrease for pigeons
+cfg.kalmanProcNoise = 4.0;   % 2 m/s^2 sigma; covers drone maneuvers without breaking birds
 
 % Kalman measurement noise: expected triangulation uncertainty (m^2).
 cfg.kalmanMeasNoise = 2.0;   % ~1.5m sigma at 100m with 8m baseline; tune after validation
 
 % Track association gate: max distance (m) from a predicted track to a new point
 % to accept the match. Tune to expected per-frame motion + triangulation error.
-cfg.trackGate = 5.0;
+cfg.trackGate = 11.34; % Mahalanobis gate: chi-squared 99% for 3-DOF (chi2inv(0.99,3))
+
+% Max range: triangulated points beyond this distance from camera 1 are rejected.
+% Clouds triangulate to 500m+; stereo depth error at that range is already tens of
+% metres (error ~ R^2 / (f * baseline)), so no valid target would be kept out.
+% Also rejects points with negative Z (behind the cameras).
+cfg.maxRange = 500;    % metres from camera 1 origin
 
 % Initial velocity variance for a new track (m/s)^2 — large, since velocity is
 % unknown at birth.
@@ -112,7 +122,7 @@ cfg.calExtrinsics.maxPoseMatches   = 20000;  % cap inliers fed to relativeCamera
                                              % decomposition is O(n^2) in memory (tens of thousands
                                              % of matches OOM); a few thousand fully fix the pose.
                                              % F is still estimated on ALL pooled matches.
-cfg.calExtrinsics.fixCam2Coplanar  = true;   % true: force cam2 forward (depth) offset to 0.
+cfg.calExtrinsics.fixCam2Coplanar  = false;   % true: force cam2 forward (depth) offset to 0.
                                              % The forward offset is unobservable from a distant
                                              % scene (low parallax) and drifts run-to-run; for a
                                              % level side-by-side rig it is ~0 by construction.

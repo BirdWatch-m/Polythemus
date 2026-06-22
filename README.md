@@ -36,6 +36,7 @@ birdtracker/
 ├── processRecording.m         Run the pipeline on a recording, offline
 ├── testSingleCamera.m         Smoke test — runs the full single-camera pipeline
 ├── replaySession.m            Generate annotated video from saved frames + log
+    replayTracks3D.m           Generate synced 3D track screenshot/video
 │
 ├── acquisition/
 │   ├── acquireFrames.m
@@ -120,6 +121,16 @@ birdtracker/
    ```
 
 The single-camera smoke test prompts for a sky mask if none exists, then runs the pipeline and prints a diagnostic report. `main` runs the N-camera detection loop with per-stage timing; press **Q** to stop.
+
+
+## Thesis exports
+
+For a synchronized 3D track figure/video:
+1. Run `processRecording` or `processRecordingTuned` in `runMode = 'full'`.
+2. Run `replaySession` or `replaySessionTuned` for the camera videos.
+3. Run `replayTracks3D` with the same `recordingDir`, `resultsFileName`, `playbackFps`, and optional absolute `frameRange`.
+
+`replayTracks3D` writes a publication PNG plus MP4/AVI video in the recording folder. Re-run processing after this update so `results.trackIds` is present for stable track colours.
 
 ## Hardware
 

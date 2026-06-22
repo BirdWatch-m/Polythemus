@@ -1,7 +1,7 @@
-function [blobs, bgMedian, framesSinceUpdate] = preprocessFrame(frameGray, bgMedian, ringBuf_i, framesSinceUpdate, fgDetector, skyMask, cfg)
+function [blobs, bgMedian, framesSinceUpdate, counts] = preprocessFrame(frameGray, bgMedian, ringBuf_i, framesSinceUpdate, fgDetector, skyMask, cfg)
 % PREPROCESSFRAME  Full detection pipeline for one camera, one frame.
 %
-%   [blobs, bgMedian, framesSinceUpdate] = preprocessFrame(frameGray, ...
+%   [blobs, bgMedian, framesSinceUpdate, counts] = preprocessFrame(frameGray, ...
 %       bgMedian, ringBuf_i, framesSinceUpdate, fgDetector, skyMask, cfg)
 %
 %   Runs in sequence: background subtraction, sky masking, morphological
@@ -21,12 +21,13 @@ function [blobs, bgMedian, framesSinceUpdate] = preprocessFrame(frameGray, bgMed
 %     blobs             — struct array of gated detections (see gateBlobs)
 %     bgMedian          — updated median background
 %     framesSinceUpdate — updated median-refresh counter
+%     counts            — gate counters from gateBlobs (rawRegions, rejSmall, etc.)
 %
 %   See also: detectBlobs, applyBackground, gateBlobs
 
 [mask, bgMedian, framesSinceUpdate] = applyBackground( ...
     frameGray, bgMedian, ringBuf_i, framesSinceUpdate, fgDetector, cfg);
 
-blobs = gateBlobs(mask, skyMask, cfg);
+[blobs, counts] = gateBlobs(mask, skyMask, cfg);
 
 end

@@ -1,7 +1,7 @@
-function points = triangulateGroups(groups, calibration, cfg)
+function [points, counts] = triangulateGroups(groups, calibration, cfg)
 % TRIANGULATEGROUPS  Recover 3D positions from associated multi-view blobs.
 %
-%   points = triangulateGroups(groups, calibration, cfg)
+%   [points, counts] = triangulateGroups(groups, calibration, cfg)
 %
 %   For each association group seen by >= 2 cameras (from associateViews), the
 %   observed centroids are undistorted, triangulated to a single world point by
@@ -30,19 +30,25 @@ function points = triangulateGroups(groups, calibration, cfg)
 %     groups      — struct array from associateViews (.camIds, .points [Nx2])
 %     calibration — struct with .intrinsics{i} (cameraParameters/cameraIntrinsics),
 %                   .R{i} (3x3), .t{i} (3x1)
-%     cfg         — struct from buildConfig (uses cfg.N, cfg.reprThreshold)
+%     cfg         — struct from buildConfig (uses cfg.N, cfg.reprThreshold,
+%                   cfg.maxRange)
 %
-%   OUTPUT
+%   OUTPUTS
 %     points — 1xP struct array, one per triangulated group, with fields:
 %       .position  — [1x3] world coordinates (metres)
 %       .reprojErr — mean reprojection error over observing cameras (pixels)
 %       .camIds    — cameras that observed it
 %       .groupIdx  — index into the input groups
-%       .valid     — reprojErr <= cfg.reprThreshold
+%       .valid     — all three gates passed: reprErr, positive-Z, maxRange
+%     counts — struct: skippedFewViews, failedRepr, failedNegZ, failedMaxRange,
+%              valid (counts are independent — a point may fail multiple gates)
 %
 %   See also: associateViews, initSystem, validateCalibration
 
 N = cfg.N;
+
+counts = struct('skippedFewViews', 0, 'failedRepr', 0, 'failedNegZ', 0, ...
+                'failedMaxRange', 0, 'valid', 0);
 
 % Per-camera projection matrices P = K * [R | t].
 P = cell(1, N);
@@ -56,7 +62,8 @@ points = repmat(emptyPoint(), 1, 0);
 for g = 1:numel(groups)
     cams = groups(g).camIds;
     if numel(cams) < 2
-        continue;   % need at least two views to triangulate
+        counts.skippedFewViews = counts.skippedFewViews + 1;
+        continue;
     end
 
     % Undistort each observing camera's centroid, collect its projection matrix.
@@ -70,14 +77,25 @@ for g = 1:numel(groups)
 
     [X, reprojErr, reprojErrs, reprojPts] = triangulateDLT(obs, Ps);
 
-    p                       = emptyPoint(N);
-    p.position              = X(:).';
-    p.reprojErr             = reprojErr;
-    p.reprojErrByCam(cams)  = reprojErrs;
+    % Evaluate each validity gate independently so all can be counted.
+    okRepr  = reprojErr <= cfg.reprThreshold;
+    okNegZ  = X(3) > 0;
+    okRange = norm(X) <= cfg.maxRange;
+
+    if ~okRepr,  counts.failedRepr     = counts.failedRepr     + 1; end
+    if ~okNegZ,  counts.failedNegZ     = counts.failedNegZ     + 1; end
+    if ~okRange, counts.failedMaxRange = counts.failedMaxRange + 1; end
+
+    p                           = emptyPoint(N);
+    p.position                  = X(:).';
+    p.reprojErr                 = reprojErr;
+    p.reprojErrByCam(cams)      = reprojErrs;
     p.reprojectedPoints(cams,:) = reprojPts;
-    p.camIds                = cams;
-    p.groupIdx              = g;
-    p.valid                 = reprojErr <= cfg.reprThreshold;
+    p.camIds                    = cams;
+    p.groupIdx                  = g;
+    p.valid                     = okRepr && okNegZ && okRange;
+
+    if p.valid, counts.valid = counts.valid + 1; end
     points(end+1) = p; %#ok<AGROW>
 end
 

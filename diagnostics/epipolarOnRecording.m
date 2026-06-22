@@ -33,7 +33,7 @@ function epipolarOnRecording(recDir, nSample)
 %   See also: buildFundamentalMatrices, validateCalibration, associateViews
 
 if nargin < 1 || isempty(recDir)
-    recDir = 'output/recordings/20260619_201550';
+    recDir = 'output/recordings/20260621_134509';
 end
 if nargin < 2 || isempty(nSample)
     nSample = 15;

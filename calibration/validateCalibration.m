@@ -40,7 +40,7 @@ clc; close all; clear;
 addpath(genpath(fullfile(fileparts(mfilename('fullpath')), '..')));
 
 cfg = buildConfig();
-measuredDistanceM = [14.970];   % optional: set to a telemeter/tape distance for scale diagnostics
+measuredDistanceM = [14.6];   % optional: set to a telemeter/tape distance for scale diagnostics
 
 % =========================================================================
 
