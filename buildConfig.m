@@ -47,7 +47,7 @@ cfg.medianBufLen = 30;   % frames used for temporal median background (~2s)
 
 % --- Background model ---
 cfg.bgUpdateInterval  = 15;  % recompute the median background every N frames (per camera)
-cfg.medianFgThreshold = 20;  % |frame - median| above this (0-255) marks a pixel foreground
+cfg.medianFgThreshold = 15;  % |frame - median| above this (0-255) marks a pixel foreground
 cfg.bgMedianStride    = 2;   % subsample the ring buffer by this stride when taking the median (speed)
 cfg.useGMM            = true; % AND the GMM model with the median model; false = median-only (faster)
 
@@ -61,7 +61,7 @@ cfg.morphStrel        = strel('disk', cfg.morphKernelRadius);  % built once; reb
 
 % --- Detection thresholds ---
 % Epipolar: max distance (px) from predicted epipolar line to accept a cross-camera match.
-cfg.epiThreshold  = 20.0;  % permissive: bad extrinsics can push true matches 10-20px off the line
+cfg.epiThreshold  = 40.0;  % permissive: bad extrinsics can push true matches 10-20px off the line
 
 % Reprojection: max error (px) between triangulated point and original detection.
 cfg.reprThreshold = 15.0;  % matches epiThreshold tolerance; bad extrinsics inflate reprojection error
@@ -81,14 +81,14 @@ cfg.maxSyncError = 0.033;  % one frame at 30fps; does not discard frames, only l
 
 % --- Tracking ---
 cfg.maxCoastFrames   = 30;  % 1s at 30fps; bridges longer occlusion/matching gaps
-cfg.minConfirmFrames = 2;   % consecutive matched frames before a track is confirmed
-cfg.minTrackAge      = 30;   % min cumulative matched frames before a confirmed track appears in results
+cfg.minConfirmFrames = 3;   % consecutive matched frames before a track is confirmed
+cfg.minTrackAge      = 10;   % min cumulative matched frames before a confirmed track appears in results
 
 % Kalman process noise: how much random acceleration to assume (m/s^2)^2.
 cfg.kalmanProcNoise = 4.0;   % 2 m/s^2 sigma; covers drone maneuvers without breaking birds
 
 % Kalman measurement noise: expected triangulation uncertainty (m^2).
-cfg.kalmanMeasNoise = 2.0;   % ~1.5m sigma at 100m with 8m baseline; tune after validation
+cfg.kalmanMeasNoise = 15;   % ~1.5m sigma at 100m with 8m baseline; tune after validation
 
 % Track association gate: max distance (m) from a predicted track to a new point
 % to accept the match. Tune to expected per-frame motion + triangulation error.

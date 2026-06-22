@@ -28,7 +28,7 @@ addpath(genpath(fileparts(mfilename('fullpath'))));
 % =========================================================================
 % USER INPUTS
 % =========================================================================
-recordingDir = 'output/recordings/20260621_134509';
+recordingDir = 'output/recordings/20260622_132103';
 runMode      = 'full';    % 'detect' | 'full'
 
 % --- Load the recording ---
@@ -57,6 +57,7 @@ state.bgMedian            = cell(1, N);
 state.bgFramesSinceUpdate = zeros(1, N);
 state.fgDetectors         = cell(1, N);
 state.skyMask             = cell(1, N);
+
 for i = 1:N
     state.ringBuf{i}     = zeros(H, W, cfg.ringBufLen, 'uint8');
     state.bgMedian{i}    = zeros(H, W, 'double');

@@ -22,7 +22,7 @@ addpath(genpath(fileparts(mfilename('fullpath'))));
 % =========================================================================
 % USER INPUTS
 % =========================================================================
-recordingDir = 'output/recordings/20260621_134509';
+recordingDir = 'output/recordings/20260622_132103';
 playbackFps  = 30;    % fps of output video; match replayTracks3D for side-by-side use
 frameRange   = [];    % [] or absolute recording frames [firstFrame lastFrame]
 
