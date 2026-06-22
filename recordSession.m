@@ -1,26 +1,8 @@
-% RECORDSESSION  Capture synchronized frames from all cameras to disk.
-%
-%   Script. Edit the USER INPUTS, then run with F5. Captures only (no detection)
-%   to keep the frame rate up; process the result later with processRecording.
-%   Press Q in the figure to stop (or set nSeconds).
-%
-%   Output: output/recordings/<timestamp>/cam<i>/frame_NNNNNN.tif  per camera,
-%   plus session.mat (per-frame timestamps, inter-camera sync, cfg, camera
-%   settings, calibration snapshot) and a multiCamParams.mat sidecar so the
-%   recording can be reprocessed and replayed with true timing and geometry.
-%
-%   NOTE: storage is GB-scale (uncompressed TIFF at 1280x720 is ~2.8 MB/frame/camera).
-%   Frames are saved losslessly so no artefacts contaminate background
-%   subtraction or blob detection. Requires an SSD for sustained 30 fps.
-%
-%   See also: processRecording, acquireFrames, replaySession
+% RECORDSESSION Captures synchronized camera frames and session metadata.
 
 clc; close all; clear;
 
-% =========================================================================
-% USER INPUTS
-% =========================================================================
-nSeconds = 0;           % auto-stop after N seconds (0 = Q key only)
+nSeconds = 0;
 outRoot  = 'output/recordings';
 
 cfg = buildConfig();
@@ -28,11 +10,6 @@ N = cfg.N;
 W = cfg.resolution(1);
 H = cfg.resolution(2);
 
-% --- Open cameras (logical i -> physical webcamlist index) ---
-% Structural settings (focus + per-model profile + auto mode) are applied
-% first; all cameras then settle simultaneously so both lock at the same
-% scene brightness (sequential per-camera settling can lock at different
-% exposures if the scene changes between them).
 cams = cell(1, N);
 for i = 1:N
     cams{i} = webcam(cfg.camIndices(i));
@@ -60,22 +37,17 @@ for i = 1:N
     end
 end
 
-% Capture camera settings for reproducibility.
 camSettings = cell(1, N);
 for i = 1:N
     try, camSettings{i} = get(cams{i}); catch, camSettings{i} = struct('Resolution', cams{i}.Resolution); end
 end
 
-% --- Output directories ---
 sessionDir = fullfile(outRoot, datestr(now, 'yyyymmdd_HHMMSS'));
 for i = 1:N
     d = fullfile(sessionDir, sprintf('cam%d', i));
     if ~isfolder(d), mkdir(d); end
 end
 
-% Snapshot the active calibration into the recording folder. This preserves
-% the geometry used at capture time even if calibration/multiCamParams.mat is
-% overwritten by a later recalibration.
 calibration = [];
 calibrationFile = cfg.calFile;
 if isfile(cfg.calFile)
@@ -93,12 +65,10 @@ else
             cfg.calFile);
 end
 
-% --- Log (preallocated; auto-grows if exceeded, trimmed at end) ---
 estFrames = 10000;
-log.timestamps = nan(N, estFrames);   % seconds since start, per camera
-log.syncMs     = nan(1, estFrames);   % inter-camera spread per frame (ms)
+log.timestamps = nan(N, estFrames);
+log.syncMs     = nan(1, estFrames);
 
-% --- Q-to-stop figure ---
 fig = figure('Name', 'Recording — press Q to stop', 'NumberTitle', 'off', ...
              'KeyPressFcn', @(~,e) setappdata(gcf, 'lastKey', e.Key));
 setappdata(fig, 'lastKey', '');
@@ -132,7 +102,6 @@ end
 if ishandle(fig), close(fig); end
 cams = {};
 
-% Trim and save session metadata.
 log.timestamps = log.timestamps(:, 1:frameCount);
 log.syncMs     = log.syncMs(1:frameCount);
 

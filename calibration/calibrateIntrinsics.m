@@ -1,61 +1,27 @@
-% CALIBRATEINTRINSICS  Single-camera intrinsic calibration via auto-capture.
-%
-%   Script. Edit the USER INPUTS block below, then run with F5.
-%
-%   Displays a live feed from the selected camera and auto-captures frames
-%   when a checkerboard is detected and held steady. Runs estimation once
-%   enough frames are collected and saves a cameraParameters object to
-%   saveFile. Pass that path to calibrateExtrinsics later.
-%
-%   If boardSize is empty, the board dimensions are detected automatically
-%   from the first frame where a checkerboard is found.
-%
-%   USER INPUTS
-%     camIdx        integer index into webcamlist()
-%     squareSizeM   physical side length of one square, in metres
-%     boardSize     [rows cols] interior corners, or [] for auto-detect
-%                   e.g. [5 7] for a 6x8 square board (corners = squares - 1)
-%     saveFile      output path; rename per camera
-%     MIN_CAPTURES  minimum captures required before estimation runs
-%
-%   OUTPUT
-%     A .mat file at saveFile containing one variable, intrinsics.
-%
-%   See also: buildConfig, calibrateExtrinsics, estimateCameraParameters
-
-% =========================================================================
-% USER INPUTS — edit these before running
-% =========================================================================
+% CALIBRATEINTRINSICS Calibrates one camera intrinsic model.
 
 disp('Connected cameras:'); disp(webcamlist);
 
-camIdx       = 2;                                  % index into webcamlist()
-squareSizeM  = 0.023;                              % physical square size in metres
-boardSize    = [7 10];                             % [] = auto-detect on first frame
-saveName = 'intrinsics_MY1_720.mat';   % rename per camera
+camIdx       = 2;
+squareSizeM  = 0.023;
+boardSize    = [7 10];
+saveName = 'intrinsics_MY1_720.mat';
 saveFile = fullfile(fileparts(mfilename('fullpath')), saveName);
 
 cfg = buildConfig();
 
-MIN_CAPTURES  = 25;        % min captures before estimation runs
-AUTO_INTERVAL = 3;         % min seconds between auto-captures
-STABILITY_THR = 0.5;       % max px drift between frames to count as stable
+MIN_CAPTURES  = 25;
+AUTO_INTERVAL = 3;
+STABILITY_THR = 0.5;
 
 cam = webcam(camIdx);
 cam.Resolution = sprintf('%dx%d', cfg.resolution(1), cfg.resolution(2));
 
-% Single-sourced focus + structural locks + auto-settled WB (model auto-detected
-% by cam.Name from cfg.camProfiles). Calibration runs on the SAME focus value the
-% operation uses, so intrinsics match what cameras actually do later.
 applyCameraSettings(cam, cfg);
 
-% Indoor calibration needs a manual exposure value — the auto-settled value from
-% applyCameraSettings is overridden here. ExposureMode is already 'manual', so we
-% just write the value. Fiddle with this if the live histogram looks off.
 cam.Exposure = -1;
 pause(1);
 
-% --- Exposure preview: live image + histogram. Press any key to start capturing. ---
 previewFig = figure('Name', 'Exposure preview — press any key to START, Ctrl-C to abort', ...
                     'KeyPressFcn', @(~,e) setappdata(gcf, 'go', true));
 setappdata(previewFig, 'go', false);
@@ -69,8 +35,6 @@ while ishandle(previewFig) && ~getappdata(previewFig, 'go')
 end
 if ishandle(previewFig), close(previewFig); end
 
-% =========================================================================
-
 boardConfirmed = ~isempty(boardSize);
 
 H = cfg.resolution(2);
@@ -79,7 +43,7 @@ W = cfg.resolution(1);
 imagePoints = {};
 nCaptured   = 0;
 tCalibStart = tic();
-lastCapTime = -Inf;        % seconds since tCalibStart
+lastCapTime = -Inf;
 prevPts     = [];
 
 fig = figure('Name', sprintf('Intrinsic calibration — camera %d', camIdx), ...
@@ -97,11 +61,9 @@ while ishandle(fig)
 
     frame    = snapshot(cam);
 
-    % Detect corners without enforcing size — accept whatever the detector finds.
     [pts, detectedSize] = detectCheckerboardPoints(frame);
     boardFound = ~isempty(pts);
 
-    % On first detection, lock in board size and print it for reference.
     if boardFound && ~boardConfirmed
         boardSize      = detectedSize;
         boardConfirmed = true;
@@ -109,12 +71,10 @@ while ishandle(fig)
                 boardSize(1), boardSize(2));
     end
 
-    % After confirmation, reject frames where a different board size appears.
     if boardFound && boardConfirmed
         boardFound = isequal(detectedSize, boardSize);
     end
 
-    % Check whether the board has moved since the last frame.
     if boardFound && ~isempty(prevPts) && size(pts,1) == size(prevPts,1)
         drift = mean(sqrt(sum((pts - prevPts).^2, 2)));
     else
@@ -122,7 +82,6 @@ while ishandle(fig)
     end
     isStable = boardFound && drift < STABILITY_THR;
 
-    % Auto-capture when stable and enough time has elapsed.
     nowT       = toc(tCalibStart);
     timePassed = nowT - lastCapTime;
     if isStable && timePassed > AUTO_INTERVAL && all(isfinite(pts(:)))
@@ -132,7 +91,6 @@ while ishandle(fig)
         fprintf('Captured %d/%d\n', nCaptured, MIN_CAPTURES);
     end
 
-    % Draw overlay on live feed.
     display = frame;
     if boardFound && all(isfinite(pts(:)))
         display = insertMarker(frame, pts, 'o', 'Color', 'green', 'Size', 5);
@@ -145,7 +103,6 @@ while ishandle(fig)
 
     prevPts = pts;
 
-    % Exit on Q keypress.
     if strcmp(getappdata(fig,'lastKey'), 'q')
         break;
     end
@@ -165,7 +122,6 @@ worldPoints = generateCheckerboardPoints(boardSize, squareSizeM);
 imagePoints = cat(3, imagePoints{:});
 fprintf('Board size used: [%d %d] interior corners.\n', boardSize(1), boardSize(2));
 
-% Estimate camera parameters from collected image/world point pairs.
 intrinsics = estimateCameraParameters( ...
     imagePoints, worldPoints, ...
     'ImageSize',  [H W], ...
@@ -186,14 +142,9 @@ else
     fprintf('Calibration quality: good.\n');
 end
 
-% Persist the calibration BEFORE the holdout test, so a good result is never
-% lost if the (deprecated) holdout helpers error on a newer MATLAB version.
 save(saveFile, 'intrinsics');
 fprintf('Saved to %s\n', saveFile);
 
-% =========================================================================
-% HOLDOUT VALIDATION
-% =========================================================================
 fprintf('\nRunning holdout validation...\n');
 
 rng(42);
@@ -203,13 +154,11 @@ n_train = round(0.8 * n);
 train_idx = idx(1:n_train);
 holdout_idx = idx(n_train+1:end);
 
-% Reconstruct cell arrays for splitting
-imagePoints_cell = squeeze(num2cell(imagePoints, [1 2]));   % back to cell of [Nx2] arrays
+imagePoints_cell = squeeze(num2cell(imagePoints, [1 2]));
 
 train_pts = cat(3, imagePoints_cell{train_idx});
 holdout_pts_cell = imagePoints_cell(holdout_idx);
 
-% Calibrate on training subset only
 intrinsics_train = estimateCameraParameters( ...
     train_pts, worldPoints, ...
     'ImageSize',  [H W], ...
@@ -218,36 +167,27 @@ intrinsics_train = estimateCameraParameters( ...
 train_err = intrinsics_train.MeanReprojectionError;
 fprintf('Training subset error (%.0f%% of data): %.3fpx\n', 80, train_err);
 
-% Evaluate on held-out points
 n_holdout = numel(holdout_idx);
 holdout_errors = zeros(n_holdout, 1);
 valid = false(n_holdout, 1);
 
 for i = 1:n_holdout
     pts_h = holdout_pts_cell{i};
-    
+
     if isempty(pts_h) || any(~isfinite(pts_h(:)))
         continue
     end
-    
+
     valid(i) = true;
-    
-    % undistort points using training-set intrinsics
+
     pts_undist = undistortPoints(pts_h, intrinsics_train);
-    
-    % estimate extrinsics for this held-out view
+
     [R, t] = extrinsics(pts_undist, worldPoints, intrinsics_train);
-    
-    % Project world points back into the image. ApplyDistortion MUST be true:
-    % pts_h are the raw (distorted) detected corners, so the projection has to
-    % carry distortion too. Without it, worldToImage returns ideal pinhole
-    % pixels and this "error" just measures lens distortion (large near the
-    % frame edges) — which falsely reads as severe overfitting.
+
     projected = worldToImage(intrinsics_train, R, t, ...
                              [worldPoints, zeros(size(worldPoints,1), 1)], ...
                              'ApplyDistortion', true);
 
-    % per-image reprojection error in raw pixel space (matches MeanReprojectionError)
     diffs = pts_h - projected;
     holdout_errors(i) = mean(sqrt(sum(diffs.^2, 2)));
 end
@@ -259,16 +199,9 @@ ratio = holdout_mean / train_err;
 fprintf('Held-out error  (%.0f%% of data): %.3fpx\n', 20, holdout_mean);
 fprintf('Ratio (held-out / training):      %.2fx\n', ratio);
 
-% Verdict is gated on the ABSOLUTE held-out error, not the ratio. The held-out
-% error is the real generalisation accuracy that feeds undistortion and
-% triangulation; anything under HELDOUT_LIMIT is usable regardless of ratio.
-% The ratio is only a secondary flag: when the training error is very low it
-% inflates dramatically (a 0.27->0.66px gap reads as 2.4x), so it is meaningful
-% only when the absolute error is already marginal. We warn on ratio only if
-% the absolute error is also in the usable-but-not-great band.
-HELDOUT_TARGET = 0.5;   % px — excellent generalisation
-HELDOUT_LIMIT  = 1.0;   % px — usable ceiling
-RATIO_FLAG     = 3.0;   % only consulted when held-out error is already marginal
+HELDOUT_TARGET = 0.5;
+HELDOUT_LIMIT  = 1.0;
+RATIO_FLAG     = 3.0;
 
 if holdout_mean > HELDOUT_LIMIT
     fprintf(['Validation: held-out error %.3fpx exceeds the %.1fpx limit — ' ...
@@ -290,7 +223,6 @@ else
             holdout_mean, HELDOUT_TARGET);
 end
 
-% Plot held-out errors
 figure('Name', sprintf('Holdout validation — camera %d', camIdx));
 bar(valid_errors);
 yline(0.5, 'g--', '0.5px target');
@@ -300,9 +232,7 @@ xlabel('Held-out capture index');
 ylabel('Reprojection error (px)');
 title(sprintf('Camera %d — train %.3fpx | held-out %.3fpx | ratio %.2fx', ...
     camIdx, train_err, holdout_mean, ratio));
-% =========================================================================
 
-% Show reprojection error plot for visual inspection.
 figure('Name', sprintf('Reprojection errors — camera %d', camIdx));
 bar(reprErrors);
 xlabel('Capture index'); ylabel('Mean error (px)');

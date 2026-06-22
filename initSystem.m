@@ -1,50 +1,10 @@
 function state = initSystem(cfg)
-% INITSYSTEM  Open cameras and allocate all system state.
-%
-%   state = initSystem(cfg) opens all N cameras, allocates the ring buffer
-%   and background models, loads calibration and sky masks, and returns all
-%   runtime state in a single struct for use by the main loop.
-%
-%   INPUT
-%     cfg — struct from buildConfig()
-%
-%   OUTPUT
-%     state — struct with fields:
-%       .cams         {1xN} cell of webcam objects
-%       .ringBuf      {1xN} cell of H x W x ringBufLen uint8 arrays
-%       .ringIdx      [1xN] current write position per ring buffer
-%       .bgMedian     {1xN} cell of H x W double (median background image)
-%       .bgFramesSinceUpdate [1xN] frames since each camera's last median refresh
-%       .fgDetectors  {1xN} cell of vision.ForegroundDetector objects
-%       .skyMask      {1xN} cell of H x W logical arrays
-%       .calibration  struct — camera params + fundamental matrices (see below)
-%       .tracks       struct array — empty, schema defined here
-%       .nextTrackId  integer — increments each time a new track is spawned
-%       .log          struct — empty session log
-%       .stopFlag     logical — set true to exit the main loop
-%       .tStart       uint64 — tic() reference for session timestamps
-%
-%   CALIBRATION STRUCT (state.calibration)
-%     Loaded from cfg.calFile (written by calibrateExtrinsics), then
-%     augmented with fundamental matrices computed here.
-%       .intrinsics{i}  cameraIntrinsics object for camera i
-%       .R{i}           3x3 rotation matrix for camera i (R{1} = eye(3))
-%       .t{i}           3x1 translation vector for camera i (t{1} = zeros)
-%       .F{i,j}         3x3 fundamental matrix, computed on load (not stored)
-%
-%   ERRORS
-%     Stops with an informative message if fewer than N cameras are found,
-%     or if either required .mat file (calFile, skyMaskFile) is missing.
-%
-%   See also: buildConfig, acquireFrames, main
+% INITSYSTEM Opens cameras and initializes runtime state.
+
 
 H = cfg.resolution(2);
 W = cfg.resolution(1);
 N = cfg.N;
-
-% -------------------------------------------------------------------------
-% 1. OPEN CAMERAS
-% -------------------------------------------------------------------------
 
 available = webcamlist();
 
@@ -60,17 +20,13 @@ if any(cfg.camIndices < 1) || any(cfg.camIndices > numel(available))
           num2str(cfg.camIndices), numel(available), strjoin(available, ', '));
 end
 
-% Open all cameras and apply structural settings (focus + per-model profile).
-% Settle is deferred to the group phase below so all cameras respond to the
-% same scene brightness simultaneously.
 state.cams = cell(1, N);
 for i = 1:N
     state.cams{i} = webcam(cfg.camIndices(i));
     state.cams{i}.Resolution = sprintf('%dx%d', W, H);
-    applyCameraSettings(state.cams{i}, cfg, 'structural');   % focus + profile + auto mode, no settle yet
+    applyCameraSettings(state.cams{i}, cfg, 'structural');
 end
 
-% Warn if any camera silently rounded to a different resolution.
 for i = 1:N
     parts = sscanf(state.cams{i}.Resolution, '%dx%d');
     if abs(parts(1) - W) > 4 || abs(parts(2) - H) > 4
@@ -80,10 +36,6 @@ for i = 1:N
     end
 end
 
-% Group settle: snapshot all cameras together for autoSettleSeconds, then lock
-% all at once. Sequential per-camera settling locks cameras at different times
-% and therefore different exposures; simultaneous settling lets both converge
-% on the same scene brightness before locking.
 fprintf('Settling all cameras simultaneously (%.0fs)...\n', cfg.autoSettleSeconds);
 warnState = warning('off', 'all');
 t0 = tic;
@@ -106,11 +58,6 @@ end
 
 fprintf('Opened %d camera(s).\n', N);
 
-% -------------------------------------------------------------------------
-% 2. ALLOCATE RING BUFFERS
-% -------------------------------------------------------------------------
-% Shape: H x W x ringBufLen per camera. uint8 to minimise memory (~83MB/cam at 720p).
-
 state.ringBuf = cell(1, N);
 state.ringIdx = ones(1, N);
 
@@ -120,30 +67,19 @@ end
 
 fprintf('Ring buffers allocated (%.0f MB per camera).\n', H*W*cfg.ringBufLen/1e6);
 
-% -------------------------------------------------------------------------
-% 3. INITIALISE BACKGROUND MODELS
-% -------------------------------------------------------------------------
-
 state.bgMedian    = cell(1, N);
 state.fgDetectors = cell(1, N);
 
-% Per-camera median-refresh counter. One entry per camera so each camera's
-% median background updates independently (see applyBackground / BUG-1).
 state.bgFramesSinceUpdate = zeros(1, N);
 
 for i = 1:N
-    state.bgMedian{i} = zeros(H, W, 'double');   % populated once ring buffer fills
+    state.bgMedian{i} = zeros(H, W, 'double');
 
-    % GMM detector: 3 Gaussians per pixel, slow learning rate for outdoor stability.
     state.fgDetectors{i} = vision.ForegroundDetector( ...
         'NumGaussians',      3,     ...
         'NumTrainingFrames', 60,    ...
         'LearningRate',      0.005);
 end
-
-% -------------------------------------------------------------------------
-% 4. LOAD SKY MASKS
-% -------------------------------------------------------------------------
 
 skyMaskOk = isfile(cfg.skyMaskFile);
 if skyMaskOk
@@ -180,10 +116,6 @@ else
     fprintf('Sky masks: full-frame placeholder active.\n');
 end
 
-% -------------------------------------------------------------------------
-% 5. LOAD CALIBRATION AND BUILD FUNDAMENTAL MATRICES
-% -------------------------------------------------------------------------
-
 if ~isfile(cfg.calFile)
     error('initSystem:noCalibration', ...
           'Calibration file not found: %s\nRun calibrateExtrinsics.m first.', cfg.calFile);
@@ -192,7 +124,6 @@ end
 loaded = load(cfg.calFile);
 state.calibration = loaded.multiCamParams;
 
-% Validate expected fields from calibrateExtrinsics output format.
 if ~isfield(state.calibration, 'intrinsics') || ...
    ~isfield(state.calibration, 'R')          || ...
    ~isfield(state.calibration, 't')
@@ -207,45 +138,31 @@ if numel(state.calibration.intrinsics) ~= N
           numel(state.calibration.intrinsics), N);
 end
 
-% Compute fundamental matrices for all camera pairs and attach to struct.
 state.calibration = buildFundamentalMatrices(state.calibration, N);
 
 fprintf('Calibration loaded. Fundamental matrices built for %d pair(s).\n', nchoosek(N,2));
 
-% -------------------------------------------------------------------------
-% 6. INITIALISE EMPTY TRACK LIST
-% -------------------------------------------------------------------------
-% Empty struct array with schema matching fields written by initTrack.m.
-
 state.tracks = struct( ...
     'id',       {}, ...
-    'state',    {}, ...   % 'tentative' | 'confirmed' | 'coasting'
-    'kf',       {}, ...   % trackingKF object
-    'age',      {}, ...   % total frames alive
-    'noDetAge', {}, ...   % consecutive frames without detection
-    'lastPos',  {});      % [x y z] last confirmed position (m)
+    'state',    {}, ...
+    'kf',       {}, ...
+    'age',      {}, ...
+    'noDetAge', {}, ...
+    'lastPos',  {});
 
 state.nextTrackId = 1;
 
-% -------------------------------------------------------------------------
-% 7. INITIALISE SESSION LOG
-% -------------------------------------------------------------------------
-
-state.log.timestamps       = [];   % [1 x nFrames] mean seconds since tStart
-state.log.cameraTimestamps = [];   % [N x nFrames] per-camera seconds since tStart
-state.log.syncFlags        = [];   % [1 x nFrames] logical
-state.log.syncMs           = [];   % [1 x nFrames] inter-camera timestamp spread (ms)
-state.log.nBlobs           = [];   % [N x nFrames] blob count per camera
-state.log.blobCentroids    = {};   % {nFrames x 1} cell of {1xN} centroid arrays
-state.log.nGroups          = [];   % [1 x nFrames] association groups formed
-state.log.nPoints          = [];   % [1 x nFrames] valid triangulated points
-state.log.nConfirmed       = [];   % [1 x nFrames] confirmed tracks
-state.log.meanReprErr      = [];   % [1 x nFrames] mean reprojection error (px)
-state.log.trackPositions   = {};   % {nFrames x 1} cell of [nTracks x 3] arrays
-
-% -------------------------------------------------------------------------
-% 8. REMAINING STATE
-% -------------------------------------------------------------------------
+state.log.timestamps       = [];
+state.log.cameraTimestamps = [];
+state.log.syncFlags        = [];
+state.log.syncMs           = [];
+state.log.nBlobs           = [];
+state.log.blobCentroids    = {};
+state.log.nGroups          = [];
+state.log.nPoints          = [];
+state.log.nConfirmed       = [];
+state.log.meanReprErr      = [];
+state.log.trackPositions   = {};
 
 state.tStart   = tic();
 state.stopFlag = false;

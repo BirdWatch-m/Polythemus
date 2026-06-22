@@ -11,6 +11,29 @@ output/
 calibration/*.mat
 config/*.mat
 
+# Annex branch exclusions
+tests/
+diagnostics/
+ASSUMPTIONS.md
+CLAUDE.md
+CODE_REVIEW.txt
+README.md
+TODO.md
+calibration/CALIBRATION_EXPLAINED.txt
+calibration/validateCalibration.m
+analyzeResults.m
+batchProcessDrone.m
+exportDetectionFigure.m
+extractTrackRanges.m
+processRecordingTuned.m
+replaySessionTuned.m
+replayTracks3D.m
+salvageCalibration.m
+salvageSession.m
+testSingleCamera.m
+trimRecording.m
+*_log.txt
+
 # OS / editor
 .DS_Store
 Thumbs.db

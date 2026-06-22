@@ -1,27 +1,7 @@
 function [blobs, counts] = gateBlobs(mask, skyMask, cfg)
-% GATEBLOBS  Extract blobs from foreground mask and apply detection filters.
-%
-%   [blobs, counts] = gateBlobs(mask, skyMask, cfg)
-%
-%   Applies the sky mask, runs morphological cleanup, extracts connected
-%   regions, then filters by area and aspect ratio. Returns only blobs
-%   that pass all filters, plus a counts struct for gate reporting.
-%
-%   INPUTS
-%     mask    — H x W logical foreground mask from applyBackground
-%     skyMask — H x W logical sky region mask from drawSkyMasks
-%     cfg     — struct from buildConfig()
-%
-%   OUTPUTS
-%     blobs  — struct array, each element has fields:
-%                .centroid  [u v] pixel coordinates (double)
-%                .area      scalar pixel area (double)
-%                .bbox      [x y width height] bounding box (double)
-%     counts — struct: rawRegions, rejSmall, rejLarge, rejAspect, passed
-%
-%   See also: applyBackground, preprocessFrame, associateViews
+% GATEBLOBS Filters connected foreground regions into blobs.
 
-% Restrict detection to sky region only.
+
 if ~isequal(size(mask), size(skyMask))
     error('gateBlobs:maskSizeMismatch', ...
           ['Sky mask is %dx%d but the frame is %dx%d.\n' ...
@@ -35,13 +15,10 @@ if cfg.useMorphology
     mask = imclose(mask, cfg.morphStrel);
 end
 
-% Extract connected regions.
 stats = regionprops(mask, 'Centroid', 'Area', 'BoundingBox', 'MajorAxisLength', 'MinorAxisLength');
 
-% Count raw regions before any gate.
 rawRegions = numel(stats);
 
-% Filter by area — count rejections before removing.
 if rawRegions > 0
     areas    = [stats.Area];
     rejSmall = sum(areas < cfg.minBlobArea);
@@ -52,7 +29,6 @@ else
     rejLarge = 0;
 end
 
-% Filter by aspect ratio — count rejections before removing.
 rejAspect = 0;
 if ~isempty(stats)
     safeMinor = max([stats.MinorAxisLength], 0.1);

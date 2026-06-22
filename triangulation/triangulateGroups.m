@@ -1,59 +1,15 @@
 function [points, counts] = triangulateGroups(groups, calibration, cfg)
-% TRIANGULATEGROUPS  Recover 3D positions from associated multi-view blobs.
-%
-%   [points, counts] = triangulateGroups(groups, calibration, cfg)
-%
-%   For each association group seen by >= 2 cameras (from associateViews), the
-%   observed centroids are undistorted, triangulated to a single world point by
-%   the linear DLT (direct linear transform) method, and then gated by mean
-%   reprojection error. A group whose error exceeds cfg.reprThreshold is kept
-%   but flagged invalid (a likely bad association that slipped the epipolar
-%   gate). Groups with < 2 views are skipped (not triangulatable).
-%
-%   DLT: each view gives two linear rows from x cross (P*X) = 0; stacking all
-%   views yields A*X = 0, solved for the homogeneous world point X as the right
-%   singular vector of A for the smallest singular value (SVD null space).
-%
-%   CONVENTION
-%     Projection matrices are built as P = K * [R | t], where R, t are
-%     world-to-camera (X_cam = R * X_world + t), consistent with how
-%     buildFundamentalMatrices constructs F.
-%
-%   LIMITATION
-%     A mismatch that lies ALONG the epipolar line is geometrically consistent —
-%     the two rays still intersect, just at the wrong depth — so it passes both
-%     the epipolar gate (associateViews) and this reprojection gate. Two views
-%     cannot detect such an error; a 3rd camera (a differently oriented epipolar
-%     constraint) or temporal tracking is needed to disambiguate it.
-%
-%   INPUTS
-%     groups      — struct array from associateViews (.camIds, .points [Nx2])
-%     calibration — struct with .intrinsics{i} (cameraParameters/cameraIntrinsics),
-%                   .R{i} (3x3), .t{i} (3x1)
-%     cfg         — struct from buildConfig (uses cfg.N, cfg.reprThreshold,
-%                   cfg.maxRange)
-%
-%   OUTPUTS
-%     points — 1xP struct array, one per triangulated group, with fields:
-%       .position  — [1x3] world coordinates (metres)
-%       .reprojErr — mean reprojection error over observing cameras (pixels)
-%       .camIds    — cameras that observed it
-%       .groupIdx  — index into the input groups
-%       .valid     — all three gates passed: reprErr, positive-Z, maxRange
-%     counts — struct: skippedFewViews, failedRepr, failedNegZ, failedMaxRange,
-%              valid (counts are independent — a point may fail multiple gates)
-%
-%   See also: associateViews, initSystem, validateCalibration
+% TRIANGULATEGROUPS Triangulates associated blobs into 3D points.
+
 
 N = cfg.N;
 
 counts = struct('skippedFewViews', 0, 'failedRepr', 0, 'failedNegZ', 0, ...
                 'failedMaxRange', 0, 'valid', 0);
 
-% Per-camera projection matrices P = K * [R | t].
 P = cell(1, N);
 for i = 1:N
-    K    = calibration.intrinsics{i}.IntrinsicMatrix.';   % standard K (column convention)
+    K    = calibration.intrinsics{i}.IntrinsicMatrix.';
     P{i} = K * [calibration.R{i}, calibration.t{i}(:)];
 end
 
@@ -66,7 +22,6 @@ for g = 1:numel(groups)
         continue;
     end
 
-    % Undistort each observing camera's centroid, collect its projection matrix.
     obs = zeros(numel(cams), 2);
     Ps  = cell(1, numel(cams));
     for c = 1:numel(cams)
@@ -77,7 +32,6 @@ for g = 1:numel(groups)
 
     [X, reprojErr, reprojErrs, reprojPts] = triangulateDLT(obs, Ps);
 
-    % Evaluate each validity gate independently so all can be counted.
     okRepr  = reprojErr <= cfg.reprThreshold;
     okNegZ  = X(3) > 0;
     okRange = norm(X) <= cfg.maxRange;
@@ -96,15 +50,10 @@ for g = 1:numel(groups)
     p.valid                     = okRepr && okNegZ && okRange;
 
     if p.valid, counts.valid = counts.valid + 1; end
-    points(end+1) = p; %#ok<AGROW>
+    points(end+1) = p;
 end
 
 end
-
-
-% =========================================================================
-% LOCAL HELPERS
-% =========================================================================
 
 function p = emptyPoint(N)
 if nargin < 1
@@ -115,12 +64,7 @@ p = struct('position', [NaN NaN NaN], 'reprojErr', NaN, ...
            'camIds', [], 'groupIdx', 0, 'valid', false);
 end
 
-
 function [X, reprojErr, errs, reprojPts] = triangulateDLT(pts, Ps)
-% Linear DLT triangulation from K views.
-%   pts — K x 2 undistorted image points (one row per view)
-%   Ps  — 1 x K cell of 3x4 projection matrices
-%   X   — 3x1 world point; reprojErr — mean reprojection error (pixels)
 K = numel(Ps);
 
 A = zeros(2*K, 4);

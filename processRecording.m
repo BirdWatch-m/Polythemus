@@ -1,48 +1,21 @@
-% PROCESSRECORDING  Run the pipeline on a recorded session, offline.
-%
-%   Script. Set recordingDir + runMode below, then run with F5. Reads a session
-%   captured by recordSession and runs detection (and, in 'full' mode, the
-%   association -> triangulation -> tracking stages) frame by frame.
-%
-%   Detection results are valid now and good for offline threshold/morphology
-%   tuning. In 'full' mode the full pipeline runs offline on the saved frames.
-%
-%   Output: results.mat in the recording folder. Always written:
-%     results.nBlobs        [N x nFrames]  blob counts per camera
-%     results.blobCentroids {1 x nFrames}  {1xN} centroid arrays per frame
-%   Additional fields written in 'full' mode:
-%     results.frameIndex    [1 x nFrames]  absolute frame numbers in session
-%     results.nGroups       [1 x nFrames]  cross-camera association groups
-%     results.nPoints       [1 x nFrames]  valid triangulated points
-%     results.meanReprErr   [1 x nFrames]  mean reprojection error (px); NaN if no points
-%     results.nConfirmed    [1 x nFrames]  confirmed 3D tracks
-%     results.trackIds{1 x nFrames}        [nConfirmed x 1] stable track IDs
-%     results.trackPositions{1 x nFrames}  [nConfirmed x 3] positions per frame
-%     results.finalTracks                  track struct array at session end
-%
-%   See also: recordSession, replaySession, detectBlobs, associateViews, triangulateGroups, updateTracks
+% PROCESSRECORDING Processes a recorded session through detection, reconstruction, and tracking.
 
 clc; close all; clear;
 addpath(genpath(fileparts(mfilename('fullpath'))));
 
-% =========================================================================
-% USER INPUTS
-% =========================================================================
-recordingDir = 'output/recordings/20260622_132103';
-runMode      = 'full';    % 'detect' | 'full'
+recordingDir = 'output/recordings/box';
+runMode      = 'full';
 
-% --- Load the recording ---
 sessionFile = fullfile(recordingDir, 'session.mat');
 if ~isfile(sessionFile)
     error('processRecording:noSession', 'session.mat not found in %s', recordingDir);
 end
 loaded  = load(sessionFile);
 session = loaded.session;
-cfg     = buildConfig();               % always use current tuning
-cfg.N          = session.cfg.N;        % inherit hardware params from recording
+cfg     = buildConfig();
+cfg.N          = session.cfg.N;
 cfg.resolution = session.cfg.resolution;
 cfg.fps        = session.cfg.fps;
-cfg.ringBufLen = session.cfg.ringBufLen;
 N       = cfg.N;
 H       = cfg.resolution(2);
 W       = cfg.resolution(1);
@@ -50,7 +23,6 @@ nFrames = session.nFrames;
 
 doFull = strcmp(runMode, 'full');
 
-% --- Per-camera detection state (full-frame masks) ---
 state.ringBuf             = cell(1, N);
 state.ringIdx             = ones(1, N);
 state.bgMedian            = cell(1, N);
@@ -66,7 +38,6 @@ for i = 1:N
     state.skyMask{i}     = true(H, W);
 end
 
-% --- Full pipeline: calibration + per-frame dt ---
 if doFull
     sessionCalFile = fullfile(recordingDir, 'multiCamParams.mat');
     if isfield(session, 'calibration') && ~isempty(session.calibration)
@@ -99,12 +70,11 @@ if doFull
     tracks = struct('id', {}, 'state', {}, 'kf', {}, 'age', {}, 'noDetAge', {}, 'lastPos', {});
     nextId = 1;
 
-    ts  = mean(session.log.timestamps, 1);     % mean timestamp per frame
-    dts = [1/cfg.fps, diff(ts)];               % per-frame dt (first = nominal)
+    ts  = mean(session.log.timestamps, 1);
+    dts = [1/cfg.fps, diff(ts)];
 
 end
 
-% --- Results log ---
 results.nBlobs        = zeros(N, nFrames);
 results.blobCentroids = cell(1, nFrames);
 results.frameIndex    = 1:nFrames;
@@ -117,7 +87,6 @@ if doFull
     results.trackPositions = cell(1, nFrames);
 end
 
-% --- Gate counter accumulators ---
 if doFull
     stats.det  = struct('rawRegions', 0, 'rejSmall', 0, 'rejLarge', 0, 'rejAspect', 0, 'passed', 0);
     stats.assoc = struct('candidatePairs', 0, 'rejectedEpi', 0, 'matchedPairs', 0, ...
@@ -132,13 +101,16 @@ fprintf('Processing %d frames from %s (mode: %s)\n', nFrames, recordingDir, runM
 
 for k = 1:nFrames
 
-    % Read this frame from each camera.
+    if k == cfg.ringBufLen + 1
+        cfg.bgUpdateInterval = 999999;
+        fprintf('Background frozen at frame %d.\n', k);
+    end
+
     frames = cell(1, N);
     for i = 1:N
         frames{i} = imread(fullfile(recordingDir, sprintf('cam%d', i), sprintf('frame_%06d.tif', k)));
     end
 
-    % Detection (gray-frame interface — updateRingBuf converts once and returns it).
     [state.ringBuf, state.ringIdx, grayFrames] = updateRingBuf(state.ringBuf, state.ringIdx, frames, cfg);
     [blobs, state, dcDet] = detectBlobs(grayFrames, state, cfg);
     results.nBlobs(:, k)    = cellfun(@numel, blobs).';
@@ -154,7 +126,7 @@ for k = 1:nFrames
 
         results.nGroups(k)     = numel(groups);
         results.nPoints(k)     = numel(valid);
-        results.meanReprErr(k) = mean([valid.reprojErr]);   % NaN when valid is empty
+        results.meanReprErr(k) = mean([valid.reprojErr]);
         results.nConfirmed(k)  = sum(strcmp({tracks.state}, 'confirmed') & [tracks.age] >= cfg.minTrackAge);
 
         confirmed = tracks(strcmp({tracks.state}, 'confirmed') & [tracks.age] >= cfg.minTrackAge);
@@ -166,7 +138,6 @@ for k = 1:nFrames
             results.trackPositions{k} = vertcat(confirmed.lastPos);
         end
 
-        % Accumulate gate counters.
         stats.det.rawRegions  = stats.det.rawRegions  + dcDet.rawRegions;
         stats.det.rejSmall    = stats.det.rejSmall    + dcDet.rejSmall;
         stats.det.rejLarge    = stats.det.rejLarge    + dcDet.rejLarge;
@@ -211,15 +182,9 @@ if doFull, results.finalTracks = tracks; end
 save(fullfile(recordingDir, 'results.mat'), 'results');
 fprintf('Done. Results saved to %s\n', fullfile(recordingDir, 'results.mat'));
 
-% --- End-of-run gate report ---
 if doFull
     printGateReport(stats, nFrames, N, cfg);
 end
-
-
-% =========================================================================
-% LOCAL HELPERS
-% =========================================================================
 
 function printGateReport(s, nFrames, N, cfg)
 fr  = nFrames;

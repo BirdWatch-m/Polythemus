@@ -1,17 +1,6 @@
 function saveSession(log, cfg, state)
-% SAVESESSION  Save session log to disk and print summary.
-%
-%   saveSession(log, cfg)
-%   saveSession(log, cfg, state)
-%
-%   INPUTS
-%     log   - accumulated log struct from logFrame
-%     cfg   - struct from buildConfig()
-%     state - optional runtime state from initSystem/main. When provided,
-%             saveSession also persists calibration, camera settings, and
-%             final tracks.
-%
-%   See also: logFrame, initSystem
+% SAVESESSION Saves session data and summary metadata.
+
 
 if nargin < 3
     state = struct();
@@ -27,7 +16,7 @@ filename = fullfile(cfg.logDir, sprintf('session_%s.mat', stamp));
 nFrames   = numel(log.timestamps);
 duration  = log.timestamps(end) - log.timestamps(1);
 syncRate  = 100 * sum(log.syncFlags) / nFrames;
-meanBlobs = mean(log.nBlobs, 2);   % mean blobs per camera
+meanBlobs = mean(log.nBlobs, 2);
 
 session.savedAt = datestr(now);
 session.cfg     = cfg;
@@ -66,7 +55,6 @@ if isfield(session, 'calibration')
     session.calibrationSnapshotFile = calSnapshotFile;
 end
 
-% Keep the legacy top-level "log" variable for old analysis scripts.
 save(filename, 'log', 'session');
 
 fprintf('\n--- Session summary ---\n');

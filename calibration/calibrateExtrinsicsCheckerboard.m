@@ -1,47 +1,4 @@
-% CALIBRATEEXTRINSICSCHECKERBOARD  Stereo extrinsic calibration via checkerboard.
-%
-%   Script. Edit the USER INPUTS block below, then run with F5.
-%
-%   Opens both cameras side by side. Automatically captures frame pairs
-%   when a checkerboard is detected and held steady in BOTH cameras
-%   simultaneously. Estimates the relative camera pose from the collected
-%   pairs using the existing per-camera intrinsics and saves the result to
-%   cfg.calFile in the same format as calibrateExtrinsics.
-%
-%   Metric scale is derived directly from squareSizeM — no knownBaseline
-%   argument required.
-%
-%   For reliable results: aim for MIN_CAPTURES >= 15 pairs at varied board
-%   positions (different distances, tilts, and corners of the frame).
-%   The board must be fully visible in BOTH cameras for a pair to capture.
-%
-%   USER INPUTS
-%     intrinsicFiles  {1xN} paths to .mat files from calibrateIntrinsics,
-%                     one per camera in cfg.camIndices order
-%     squareSizeM     physical side length of one square, in metres
-%     boardSize       [rows cols] interior corners, or [] for auto-detect
-%                     e.g. [5 7] for a 6x8-square board (corners = squares-1)
-%     MIN_CAPTURES    minimum stereo pairs before estimation runs
-%
-%   OUTPUT
-%     cfg.calFile — multiCamParams struct, identical format to calibrateExtrinsics:
-%       .intrinsics{i}  cameraParameters object for camera i
-%       .R{i}           3x3 rotation matrix for camera i (R{1} = eye(3))
-%       .t{i}           3x1 translation vector for camera i (t{1} = zeros)
-%       .squareSizeM    square size used (for reference)
-%       .capturedAt     timestamp string
-%
-%   LIMITATIONS
-%     Currently supports N = 2 cameras only. The two-camera relative pose
-%     is computed per pair via extrinsics() on each camera, then averaged
-%     across all pairs using meanrot (rotation) and mean (translation).
-%
-%   See also: calibrateIntrinsics, calibrateExtrinsics, validateCalibration,
-%             buildConfig, initSystem
-
-% =========================================================================
-% USER INPUTS — edit these before running
-% =========================================================================
+% CALIBRATEEXTRINSICSCHECKERBOARD Calibrates stereo extrinsics from checkerboard pairs.
 
 clc; close all; clear;
 
@@ -52,14 +9,12 @@ cfg = buildConfig();
 intrinsicFiles = {'calibration/intrinsics_MY1_720.mat', ...
                   'calibration/intrinsics_LG1_720.mat'};
 
-squareSizeM  = 0.031;    % physical square side length in metres
-boardSize    = [7 10];        % [] = auto-detect; or e.g. [5 7]
+squareSizeM  = 0.031;
+boardSize    = [7 10];
 
-MIN_CAPTURES  = 15;       % minimum stereo pairs before estimation runs
-AUTO_INTERVAL = 3;        % minimum seconds between auto-captures
-STABILITY_THR = 1;      % max mean corner drift (px) per camera to count as stable
-
-% =========================================================================
+MIN_CAPTURES  = 15;
+AUTO_INTERVAL = 3;
+STABILITY_THR = 1;
 
 N = cfg.N;
 if N ~= 2
@@ -70,7 +25,6 @@ end
 H = cfg.resolution(2);
 W = cfg.resolution(1);
 
-% --- Load intrinsics ---
 fprintf('Loading intrinsics...\n');
 intrinsics = cell(1, N);
 for i = 1:N
@@ -84,7 +38,6 @@ for i = 1:N
     fprintf('  Camera %d: %.1fpx focal length.\n', i, mean(intrinsics{i}.FocalLength));
 end
 
-% --- Open cameras + group settle (same approach as initSystem) ---
 fprintf('\nOpening cameras...\n');
 cams = cell(1, N);
 for i = 1:N
@@ -113,13 +66,9 @@ for i = 1:N
     end
 end
 
-% =========================================================================
-% CAPTURE LOOP
-% =========================================================================
-
 boardConfirmed = ~isempty(boardSize);
 
-imgPts = cell(N, 0);    % imgPts{i, k} = corners detected in camera i, pair k
+imgPts = cell(N, 0);
 nCaptured   = 0;
 tStart      = tic();
 lastCapTime = -Inf;
@@ -137,13 +86,11 @@ fprintf('Press Q when done (min %d pairs required).\n\n', MIN_CAPTURES);
 
 while ishandle(fig)
 
-    % Grab one frame per camera.
     frames = cell(1, N);
     for i = 1:N
         frames{i} = snapshot(cams{i});
     end
 
-    % Detect checkerboard corners in each camera.
     pts   = cell(1, N);
     found = false(1, N);
     detSizes = cell(1, N);
@@ -152,7 +99,6 @@ while ishandle(fig)
         found(i) = ~isempty(pts{i});
     end
 
-    % Auto-detect board size from first successful detection.
     if any(found) && ~boardConfirmed
         for i = 1:N
             if found(i)
@@ -165,7 +111,6 @@ while ishandle(fig)
         end
     end
 
-    % Reject frames where a different board size appears.
     if boardConfirmed
         for i = 1:N
             if found(i) && ~isequal(detSizes{i}, boardSize)
@@ -176,7 +121,6 @@ while ishandle(fig)
 
     bothFound = all(found);
 
-    % Stability check — both cameras must be below the drift threshold.
     drifts = Inf(1, N);
     if bothFound
         for i = 1:N
@@ -187,7 +131,6 @@ while ishandle(fig)
     end
     isStable = bothFound && all(drifts < STABILITY_THR);
 
-    % Auto-capture when stable and enough time has passed.
     nowT = toc(tStart);
     if isStable && (nowT - lastCapTime) > AUTO_INTERVAL && ...
        all(isfinite(pts{1}(:))) && all(isfinite(pts{2}(:)))
@@ -199,7 +142,6 @@ while ishandle(fig)
         fprintf('Captured pair %d/%d\n', nCaptured, MIN_CAPTURES);
     end
 
-    % Update display.
     try
         for i = 1:N
             subplot(1, N, i);
@@ -241,10 +183,6 @@ if nCaptured < MIN_CAPTURES
           nCaptured, MIN_CAPTURES);
 end
 
-% =========================================================================
-% ESTIMATE RELATIVE POSE
-% =========================================================================
-
 fprintf('\nEstimating pose from %d pairs...\n', nCaptured);
 
 worldPoints = generateCheckerboardPoints(boardSize, squareSizeM);
@@ -256,22 +194,15 @@ reprErrs = zeros(1, nCaptured);
 
 for k = 1:nCaptured
 
-    % Board pose in each camera — metric, scale set by squareSizeM.
-    % extrinsics() uses postmultiply convention: X_cam_col = R'*X_world_col + t'.
-    % R_premultiply = R_postmultiply', so both Rb matrices must be transposed.
     [Rb1, tb1] = extrinsics(imgPts{1,k}, worldPoints, intrinsics{1});
     [Rb2, tb2] = extrinsics(imgPts{2,k}, worldPoints, intrinsics{2});
 
-    % Relative pose: camera 1 -> camera 2 (premultiply, matching pipeline).
-    % X_cam2 = R12 * X_cam1 + t12
     R12 = Rb2' * Rb1;
     t12 = tb2' - R12 * tb1';
 
     R_all(:, :, k) = R12;
     t_all(:, k)    = t12;
 
-    % Reprojection error: project world points into camera 2 and compare
-    % to detected corners.
     proj  = worldToImage(intrinsics{2}, Rb2, tb2, worldPts3D, 'ApplyDistortion', true);
     diffs = imgPts{2, k} - proj;
     reprErrs(k) = mean(sqrt(sum(diffs.^2, 2)));
@@ -282,24 +213,19 @@ fprintf('\nPer-pair reprojection errors (camera 2): ');
 fprintf('%.2fpx  ', reprErrs);
 fprintf('\nMean: %.3fpx\n', mean(reprErrs));
 
-% Average rotation across pairs via quaternion mean (no toolbox required).
-% Build a 4×N matrix of unit quaternions, compute the dominant eigenvector
-% of Q*Q', and convert back to a rotation matrix.
 Q = zeros(4, nCaptured);
 for ki = 1:nCaptured
-    q = rotm2quat(R_all(:, :, ki));   % [w x y z], row
+    q = rotm2quat(R_all(:, :, ki));
     Q(:, ki) = q(:);
 end
 [V, ~] = eig(Q * Q');
-q_mean = V(:, end);             % eigenvector for largest eigenvalue
+q_mean = V(:, end);
 q_mean = q_mean / norm(q_mean);
 R_mean = quat2rotm(q_mean.');
 t_mean = mean(t_all, 2);
 
 fprintf('Estimated baseline: %.4f m\n', norm(t_mean));
 
-% Apply the same cam2-centre constraints as the SURF path (cfg-controlled): for a
-% level side-by-side rig, pin the vertical and/or forward offset to zero.
 zeroLevel = cfg.calExtrinsics.fixCam2Level;
 zeroDepth = cfg.calExtrinsics.fixCam2Coplanar;
 if zeroLevel || zeroDepth
@@ -309,10 +235,6 @@ if zeroLevel || zeroDepth
     fprintf('Cam2 centre constrained (level=%d depth=%d): [%.3f %.3f %.3f] -> [%.3f %.3f %.3f] m\n', ...
             zeroLevel, zeroDepth, C_before, C_after);
 end
-
-% =========================================================================
-% ASSEMBLE AND SAVE
-% =========================================================================
 
 R = {eye(3),      R_mean};
 t = {zeros(3, 1), t_mean};
@@ -331,15 +253,11 @@ save(cfg.calFile, 'multiCamParams');
 fprintf('\nCalibration saved to: %s\n', cfg.calFile);
 fprintf('Run validateCalibration to verify triangulation accuracy.\n');
 
-% =========================================================================
-% GEOMETRY SUMMARY
-% =========================================================================
-
 fprintf('\n--- Camera geometry summary (world origin = camera 1) ---\n');
 for i = 1:N
-    C   = -R{i}' * t{i};           % camera centre in world (cam1) frame
-    az  = atan2d(R{i}(3, 1), R{i}(3, 3));   % look direction x/z (third row of R)
-    el  = -asind(R{i}(3, 2));               % look direction y (Y-down convention)
+    C   = -R{i}' * t{i};
+    az  = atan2d(R{i}(3, 1), R{i}(3, 3));
+    el  = -asind(R{i}(3, 2));
     fprintf('Camera %d:  position [%.3f  %.3f  %.3f] m   azimuth %.1f deg   elevation %.1f deg\n', ...
             i, C(1), C(2), C(3), az, el);
 end

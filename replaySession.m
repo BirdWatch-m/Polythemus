@@ -1,36 +1,17 @@
-% REPLAYSESSION  Write annotated video(s) from a recorded session.
-%
-%   Script. Set recordingDir below, then run with F5.
-%   Reads raw frames saved by recordSession and blob/track results from
-%   results.mat (written by processRecording), and writes one annotated video
-%   per camera to the recording directory.
-%
-%   Set frameRange = [firstFrame lastFrame] to export the same short absolute
-%   frame window as replayTracks3D. Leave [] to export the whole results window.
-%
-%   Overlay convention:
-%     red outline       - every detected blob
-%     coloured outline  - confirmed 3D track projected into this camera
-%     ID label          - stable track ID from results.trackIds
-%
-%   See also: recordSession, processRecording, replayTracks3D
+% REPLAYSESSION Writes annotated replay videos from processed results.
 
 clc; close all; clear;
 
 addpath(genpath(fileparts(mfilename('fullpath'))));
 
-% =========================================================================
-% USER INPUTS
-% =========================================================================
-recordingDir = 'output/recordings/20260622_132103';
-playbackFps  = 30;    % fps of output video; match replayTracks3D for side-by-side use
-frameRange   = [];    % [] or absolute recording frames [firstFrame lastFrame]
+recordingDir = 'output/recordings/box';
+playbackFps  = 30;
+frameRange   = [];
 
-blobMarkerRadius  = 7;     % red outline around every blob
-trackMarkerRadius = 12;    % coloured outline around confirmed tracks
-trackSnapGatePx   = 14;    % snap projected track to nearest blob inside this distance
+blobMarkerRadius  = 7;
+trackMarkerRadius = 12;
+trackSnapGatePx   = 14;
 
-% --- Load session ---
 sessionFile = fullfile(recordingDir, 'session.mat');
 if ~isfile(sessionFile)
     error('replaySession:noSession', 'session.mat not found in %s', recordingDir);
@@ -41,7 +22,6 @@ cfg     = session.cfg;
 N       = cfg.N;
 nFrames = session.nFrames;
 
-% --- Load processing results if available ---
 resultsFile = fullfile(recordingDir, 'results.mat');
 hasResults  = isfile(resultsFile);
 if hasResults
@@ -78,7 +58,6 @@ if hasFullResults
     end
 end
 
-% --- Write one video per camera ---
 for i = 1:N
 
     videoOut = replayVideoName(recordingDir, i, frameRange);
@@ -109,7 +88,6 @@ for i = 1:N
             infoStr = sprintf('cam%d | f%d | t=%.2fs | sync %.1fms', i, k, t, syncMs);
         end
 
-        % Convert grayscale to RGB so overlays render in colour.
         annotated = repmat(frame, [1 1 3]);
 
         annotated = insertText(annotated, [10 10], infoStr, ...
@@ -142,9 +120,6 @@ end
 
 fprintf('Done.\n');
 
-% =========================================================================
-% LOCAL HELPERS
-% =========================================================================
 function [frameIndices, resultRows] = resolveReplayWindow(res, nSessionFrames, hasResults, frameRange)
 if hasResults && isfield(res, 'frameIndex')
     allFrameIndices = res.frameIndex(:).';
@@ -242,7 +217,7 @@ end
 function styles = buildTrackStyles(trackIds)
 allIds = [];
 for k = 1:numel(trackIds)
-    allIds = [allIds; trackIds{k}(:)]; %#ok<AGROW>
+    allIds = [allIds; trackIds{k}(:)];
 end
 allIds = unique(allIds(:).');
 allIds = allIds(~isnan(allIds));
