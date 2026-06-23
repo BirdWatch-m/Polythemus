@@ -207,8 +207,8 @@ labels = {'(a) Raw frame', '(b) Median diff', gmmLabel, ...
           '(d) AND + sky region', '(e) Morphology', '(f) Gated blobs'};
 
 fig = figure('Color', 'white', 'Units', 'inches', ...
-             'Position', [0 0 13 5], 'Visible', 'off');
-tl  = tiledlayout(fig, 2, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
+             'Position', [0 0 8 9], 'Visible', 'off');
+tl  = tiledlayout(fig, 3, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
 
 for p = 1:6
     ax = nexttile(tl);
